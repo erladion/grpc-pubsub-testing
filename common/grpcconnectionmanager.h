@@ -109,10 +109,10 @@ private slots:
 
 private:
   GrpcWorker* m_pWorker;
-  QMap<QString, MessageCallback> m_handlers;
-  QMap<QString, FileCallback> m_fileHandlers;
+  QHash<QString, MessageCallback> m_handlers;
+  QHash<QString, FileCallback> m_fileHandlers;
 
-  QMap<QString, IncomingTransfer> m_incomingTransfers;
+  QHash<QString, IncomingTransfer> m_incomingTransfers;
 
   QMutex m_mapMutex;
   bool m_isConnected;

@@ -6,8 +6,10 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QFuture>
 #include <QStandardPaths>
 #include <QUuid>
+#include <QtConcurrent/QtConcurrent>
 
 GrpcConnectionManager* GrpcConnectionManager::m_pInstance = nullptr;
 
@@ -34,7 +36,7 @@ void GrpcConnectionManager::sendData(const QString& key, const QByteArray& data)
 }
 
 void GrpcConnectionManager::sendFile(const QString& key, const QString& filePath) {
-  instance().sendFileInternal(key, filePath);
+  QFuture future = QtConcurrent::run([key, filePath]() { instance().sendFileInternal(key, filePath); });
 }
 
 GrpcConnectionManager& GrpcConnectionManager::instance() {
