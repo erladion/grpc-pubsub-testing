@@ -6,40 +6,38 @@
 #include <QObject>
 
 void GlobalBroker::Register(CallData* client) {
-  std::lock_guard<std::mutex> lock(m_mutex);
+  std::unique_lock<std::shared_mutex> lock(m_clientMutex);
   m_clients.insert(client);
-
   m_stats.activeClients++;
 }
 
 void GlobalBroker::Unregister(CallData* client) {
-  std::lock_guard<std::mutex> lock(m_mutex);
+  std::unique_lock<std::shared_mutex> lock(m_clientMutex);
   m_clients.erase(client);
-
   m_stats.activeClients--;
 }
 
 void GlobalBroker::Broadcast(const broker::BrokerPayload& msg, CallData* sender) {
   m_stats.totalMessagesProcessed++;
   m_stats.messagesThisInterval++;
-
-  const size_t msgSize = msg.handler_key().size() + msg.sender_id().size() + msg.topic().size() + msg.payload().ByteSizeLong();
-
+  const size_t msgSize = msg.ByteSizeLong();
   m_stats.totalBytesProcessed += msgSize;
   m_stats.bytesThisInterval += msgSize;
 
   broker::BrokerPayload forwardMsg = msg;
-  bool shouldForwardToBridge = false;
+  bool shouldForwardToBridges = false;
 
   if (forwardMsg.origin_broker_id().empty()) {
     forwardMsg.set_origin_broker_id(m_brokerId);
-    shouldForwardToBridge = true;
-  } else if (forwardMsg.origin_broker_id() != m_brokerId) {
-    shouldForwardToBridge = false;
+    shouldForwardToBridges = true;
+  } else if (forwardMsg.origin_broker_id() == m_brokerId) {
+    shouldForwardToBridges = true;
+  } else {
+    shouldForwardToBridges = false;
   }
 
   {
-    std::lock_guard<std::mutex> lock(m_mutex);
+    std::shared_lock<std::shared_mutex> lock(m_clientMutex);
     for (auto* client : m_clients) {
       if (client == sender) {
         continue;
@@ -51,23 +49,39 @@ void GlobalBroker::Broadcast(const broker::BrokerPayload& msg, CallData* sender)
     }
   }
 
-  if (m_bridgeClient && shouldForwardToBridge) {
-    m_bridgeClient->writeMessage(forwardMsg);
+  if (shouldForwardToBridges) {
+    std::lock_guard<std::mutex> lock(m_peerMutex);
+    for (GrpcWorker* peer : m_peers) {
+      peer->writeMessage(forwardMsg);
+    }
   }
 }
 
 void GlobalBroker::connectToPeer(const std::string& address) {
-  if (m_bridgeClient) {
-    return;
+  const QString qtAddress = QString::fromStdString(address);
+  GrpcWorker* newPeer = new GrpcWorker(qtAddress);
+
+  QObject::connect(newPeer, &GrpcWorker::envelopeReceived, [this](broker::BrokerPayload msg) { this->injectRemoteMessage(msg); });
+
+  QObject::connect(newPeer, &GrpcWorker::disconnected, [this, newPeer]() { this->removePeer(newPeer); });
+
+  newPeer->start();
+
+  {
+    std::lock_guard<std::mutex> lock(m_peerMutex);
+    m_peers.push_back(newPeer);
   }
+}
 
-  QString qtAddress = QString::fromStdString(address);
+void GlobalBroker::removePeer(GrpcWorker* peer) {
+  std::lock_guard<std::mutex> lock(m_peerMutex);
 
-  m_bridgeClient = new GrpcWorker(qtAddress);
-
-  QObject::connect(m_bridgeClient, &GrpcWorker::envelopeReceived, [this](broker::BrokerPayload msg) { this->injectRemoteMessage(msg); });
-
-  m_bridgeClient->start();
+  auto it = std::find(m_peers.begin(), m_peers.end(), peer);
+  if (it != m_peers.end()) {
+    m_peers.erase(it);
+    peer->deleteLater();
+    std::cout << "Peer disconnected and removed" << std::endl;
+  }
 }
 
 void GlobalBroker::injectRemoteMessage(const broker::BrokerPayload& msg) {
@@ -81,6 +95,14 @@ GlobalBroker::~GlobalBroker() {
   if (m_monitorThread.joinable()) {
     m_monitorThread.join();
   }
+
+  std::lock_guard<std::mutex> lock(m_peerMutex);
+  for (GrpcWorker* peer : m_peers) {
+    peer->stop();
+    peer->wait();
+    delete peer;
+  }
+  m_peers.clear();
 }
 
 void GlobalBroker::StatsLoop() {

@@ -1,9 +1,12 @@
 #ifndef GLOBAL_BROKER_H
 #define GLOBAL_BROKER_H
 
+#include <algorithm>
 #include <mutex>
 #include <set>
+#include <shared_mutex>
 #include <thread>
+#include <vector>
 
 #include "server_stats.h"
 
@@ -26,6 +29,7 @@ public:
   void setBrokerId(const std::string& id) { m_brokerId = id; }
 
   void connectToPeer(const std::string& address);
+  void removePeer(GrpcWorker* peer);
 
   void injectRemoteMessage(const broker::BrokerPayload& msg);
 
@@ -36,17 +40,16 @@ private:
   void StatsLoop();
 
 private:
-  std::mutex m_mutex;
+  std::shared_mutex m_clientMutex;
   std::set<CallData*> m_clients;
 
-  ServerStats m_stats;
+  std::mutex m_peerMutex;
+  std::vector<GrpcWorker*> m_peers;
 
+  ServerStats m_stats;
   std::atomic<bool> m_running;
   std::thread m_monitorThread;
-
   std::string m_brokerId;
-
-  GrpcWorker* m_bridgeClient;
 };
 
 #endif  // GLOBAL_BROKER_H
