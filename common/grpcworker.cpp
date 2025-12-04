@@ -22,9 +22,13 @@ void GrpcWorker::stop() {
 
 void GrpcWorker::run() {
   grpc::ChannelArguments args;
+  // KeepAlive settings to detect broken connections
   args.SetInt(GRPC_ARG_KEEPALIVE_TIME_MS, 10000);    // Ping every 10s
   args.SetInt(GRPC_ARG_KEEPALIVE_TIMEOUT_MS, 5000);  // Timeout 5s
   args.SetInt(GRPC_ARG_HTTP2_MAX_PINGS_WITHOUT_DATA, 0);
+
+  args.SetInt(GRPC_ARG_MAX_RECEIVE_MESSAGE_LENGTH, 50 * 1024 * 1024);
+  args.SetInt(GRPC_ARG_MAX_SEND_MESSAGE_LENGTH, 50 * 1024 * 1024);
 
   m_channel = grpc::CreateCustomChannel(m_target.toStdString(), grpc::InsecureChannelCredentials(), args);
   m_stub = broker::BrokerService::NewStub(m_channel);

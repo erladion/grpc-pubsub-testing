@@ -28,6 +28,10 @@ public:
     // Allow pings even if there are no ongoing RPC calls
     builder.AddChannelArgument(GRPC_ARG_HTTP2_MAX_PINGS_WITHOUT_DATA, 0);
 
+    // Set maximum message size
+    builder.SetMaxReceiveMessageSize(50 * 1024 * 1024);
+    builder.SetMaxSendMessageSize(50 * 1024 * 1024);
+
     // Create the Completion Queue
     m_completionQueue = builder.AddCompletionQueue();
     m_server = builder.BuildAndStart();
