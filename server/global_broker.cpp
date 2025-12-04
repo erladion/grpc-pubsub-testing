@@ -3,6 +3,8 @@
 
 #include "grpcworker.h"
 
+#include "safe_logger.h"
+
 #include <QObject>
 
 void GlobalBroker::Register(CallData* client) {
@@ -76,7 +78,7 @@ void GlobalBroker::removePeer(GrpcWorker* peer) {
     m_peers.erase(it);
     peer->stop();
     peer->deleteLater();
-    std::cout << "Peer disconnected and removed" << std::endl;
+    Logger::Log("Peer disconnected and removed");
   }
 }
 
@@ -112,8 +114,8 @@ void GlobalBroker::StatsLoop() {
     const double kbSec = bytesPerSec / 1024.0;
 
     if (messagePerSec > 0 || currentClients > 0) {
-      std::cout << "[STATS] Clients: " << currentClients << " | MPS: " << messagePerSec << " | Throughput: " << std::fixed << std::setprecision(2)
-                << kbSec << "KB/s" << std::endl;
+      Logger::Log("[STATS] Clients: " + std::to_string(currentClients) + " | MPS: " + std::to_string(messagePerSec) +
+                  " | Throughput: " + std::to_string(kbSec) + "KB/s");
     }
   }
 }

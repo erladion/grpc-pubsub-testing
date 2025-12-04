@@ -11,6 +11,7 @@
 
 #include "async_structs.h"
 #include "global_broker.h"
+#include "safe_logger.h"
 
 #include "broker.grpc.pb.h"
 
@@ -19,11 +20,15 @@ using grpc::ServerCompletionQueue;
 using grpc::ServerContext;
 
 class CallData {
+  using Clock = std::chrono::steady_clock;
+
   const size_t MAX_QUEUE_BYTES = 50 * 1024 * 1024;
+  const int MAX_MSGS_PER_SEC = 2000;
 
 public:
   CallData(broker::BrokerService::AsyncService* service, ServerCompletionQueue* cq)
-      : m_pService(service), m_pCompletionQueue(cq), m_stream(&m_serverContext), m_status(CONNECT), m_writeInProgress(false), m_currentQueueBytes(0) {
+      : m_pService(service), m_pCompletionQueue(cq), m_stream(&m_serverContext), m_status(CONNECT), m_writeInProgress(false), m_currentQueueBytes(0),
+        m_msgCountInterval(0) {
     m_serverContext.set_compression_algorithm(GRPC_COMPRESS_GZIP);
     m_connectTag = {this, CONNECT};
     m_readTag = {this, READ};
@@ -51,7 +56,7 @@ public:
     std::lock_guard<std::mutex> lock(m_queueMutex);
 
     if (m_currentQueueBytes > MAX_QUEUE_BYTES) {
-      std::cerr << "Client " << m_clientId << " is too slow. Dropping connection" << std::endl;
+      Logger::LogError("Client" + m_clientId + " is too slow. Dropping message.");
 
       m_status = WRITE;
       delete this;
@@ -67,17 +72,27 @@ public:
   }
 
 private:
+  bool CheckRateLimit() {
+    auto now = Clock::now();
+    auto diff = std::chrono::duration_cast<std::chrono::milliseconds>(now - m_lastRateCheck).count();
+    if (diff > 1000) {
+      m_msgCountInterval = 0;
+      m_lastRateCheck = now;
+    }
+    m_msgCountInterval++;
+    return m_msgCountInterval <= MAX_MSGS_PER_SEC;
+  }
+
   void HandleConnect(bool ok) {
     if (!ok) {
       delete this;
       return;
     }
 
-    // Spawn next handler
     new CallData(m_pService, m_pCompletionQueue);
-
     GlobalBroker::instance().Register(this);
-    std::cout << "Client Connected: " << this << std::endl;
+
+    Logger::Log("New Client Connection Established");
 
     m_status = READ;
     m_stream.Read(&m_incomingMessage, &m_readTag);
@@ -89,8 +104,24 @@ private:
       return;
     }
 
+    if (!CheckRateLimit()) {
+      Logger::LogError("Rate limit exceeded for " + m_clientId + ". Ignoring message.");
+      m_stream.Read(&m_incomingMessage, &m_readTag);
+      return;
+    }
+
     std::string key = m_incomingMessage.handler_key();
 
+    if (!m_handshakeComplete) {
+      if (key == "__SUBSCRIBE__" && !m_incomingMessage.sender_id().empty()) {
+        m_handshakeComplete = true;
+        Logger::Log("Handshake successful for client: " + m_clientId);
+      } else {
+        Logger::LogError("Client attempted data transfer before handshake.");
+        Cleanup();
+        return;
+      }
+    }
     if (key == "__SUBSCRIBE__") {
       if (!m_incomingMessage.sender_id().empty()) {
         m_clientId = m_incomingMessage.sender_id();
@@ -99,11 +130,11 @@ private:
       std::string topic = m_incomingMessage.topic();
 
       if (topic.empty()) {
-        std::cout << "Warning: Client " << m_clientId << " sent empty subscription topic" << std::endl;
+        Logger::LogError("Client " + m_clientId + " sent empty subscription topic");
       } else {
         std::lock_guard<std::mutex> lock(m_subscriptionMutex);
         m_subscriptions.insert(topic);
-        std::cout << "Client " << m_clientId << " subscribed to: " << topic << std::endl;
+        Logger::Log("Client " + m_clientId + " subscribed to: " + topic);
       }
 
       m_stream.Read(&m_incomingMessage, &m_readTag);
@@ -182,6 +213,10 @@ private:
 
   std::unordered_set<std::string> m_subscriptions;
   std::mutex m_subscriptionMutex;
+
+  bool m_handshakeComplete;
+  Clock::time_point m_lastRateCheck;
+  int m_msgCountInterval;
 
   Tag m_connectTag;
   Tag m_readTag;

@@ -58,6 +58,7 @@ add_executable(server
   server/server.h
   server/global_broker.h
   server/global_broker.cpp
+  server/safe_logger.h
 )
 
 add_executable(client1

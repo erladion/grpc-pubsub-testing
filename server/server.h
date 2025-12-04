@@ -2,16 +2,17 @@
 #define SERVER_H
 
 #include <grpcpp/grpcpp.h>
+
 #include <thread>
 #include <vector>
+
 #include "calldata.h"
 
-#include <QDebug>
+#include "safe_logger.h"
 
 class AsyncServer {
 public:
   ~AsyncServer() {
-    qDebug() << "CRITICAL: AsyncServer is being destroyed!";
     m_server->Shutdown();
     m_completionQueue->Shutdown();
   }
@@ -30,13 +31,11 @@ public:
     builder.SetMaxReceiveMessageSize(50 * 1024 * 1024);
     builder.SetMaxSendMessageSize(50 * 1024 * 1024);
 
-    // Create the Completion Queue
     m_completionQueue = builder.AddCompletionQueue();
     m_server = builder.BuildAndStart();
 
-    std::cout << "Async Server listening on " << address << " with " << threads << " threads" << std::endl;
+    Logger::Log("Async Server listening on " + address + " with " + std::to_string(threads) + " threads");
 
-    // Spawn the first CallData to wait for the first connection
     for (int i(0); i < threads; ++i) {
       new CallData(&m_service, m_completionQueue.get());
     }
@@ -54,16 +53,14 @@ public:
 
 private:
   void HandleRpcs() {
-    // Handle events
     void* tag;
     bool ok;
     while (true) {
       // BLOCKING WAIT for next event
       if (!m_completionQueue->Next(&tag, &ok)) {
-        break;  // Queue shutdown
+        break;
       }
 
-      // Dispatch
       Tag* t = static_cast<Tag*>(tag);
       t->connection->Proceed(t, ok);
     }
