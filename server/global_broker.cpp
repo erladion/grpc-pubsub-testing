@@ -24,16 +24,14 @@ void GlobalBroker::Broadcast(const broker::BrokerPayload& msg, CallData* sender)
   m_stats.totalBytesProcessed += msgSize;
   m_stats.bytesThisInterval += msgSize;
 
-  broker::BrokerPayload forwardMsg = msg;
-  bool shouldForwardToBridges = false;
+  auto sharedMsg = std::make_shared<broker::BrokerPayload>(msg);
 
+  bool shouldForwardToBridges = false;
   if (forwardMsg.origin_broker_id().empty()) {
     forwardMsg.set_origin_broker_id(m_brokerId);
     shouldForwardToBridges = true;
   } else if (forwardMsg.origin_broker_id() == m_brokerId) {
     shouldForwardToBridges = true;
-  } else {
-    shouldForwardToBridges = false;
   }
 
   {
@@ -43,8 +41,8 @@ void GlobalBroker::Broadcast(const broker::BrokerPayload& msg, CallData* sender)
         continue;
       }
 
-      if (client->IsSubscribed(msg.handler_key())) {
-        client->AsyncSend(msg);
+      if (client->IsSubscribed(sharedMsg->handler_key())) {
+        client->AsyncSend(sharedMsg);
       }
     }
   }
@@ -52,7 +50,7 @@ void GlobalBroker::Broadcast(const broker::BrokerPayload& msg, CallData* sender)
   if (shouldForwardToBridges) {
     std::lock_guard<std::mutex> lock(m_peerMutex);
     for (GrpcWorker* peer : m_peers) {
-      peer->writeMessage(forwardMsg);
+      peer->writeMessage(*sharedMsg);
     }
   }
 }
@@ -62,8 +60,6 @@ void GlobalBroker::connectToPeer(const std::string& address) {
   GrpcWorker* newPeer = new GrpcWorker(qtAddress);
 
   QObject::connect(newPeer, &GrpcWorker::envelopeReceived, [this](broker::BrokerPayload msg) { this->injectRemoteMessage(msg); });
-
-  QObject::connect(newPeer, &GrpcWorker::disconnected, [this, newPeer]() { this->removePeer(newPeer); });
 
   newPeer->start();
 
@@ -75,10 +71,10 @@ void GlobalBroker::connectToPeer(const std::string& address) {
 
 void GlobalBroker::removePeer(GrpcWorker* peer) {
   std::lock_guard<std::mutex> lock(m_peerMutex);
-
   auto it = std::find(m_peers.begin(), m_peers.end(), peer);
   if (it != m_peers.end()) {
     m_peers.erase(it);
+    peer->stop();
     peer->deleteLater();
     std::cout << "Peer disconnected and removed" << std::endl;
   }
@@ -111,7 +107,6 @@ void GlobalBroker::StatsLoop() {
 
     const uint64_t messagePerSec = m_stats.messagesThisInterval.exchange(0);
     const uint64_t bytesPerSec = m_stats.bytesThisInterval.exchange(0);
-
     const int currentClients = m_stats.activeClients.load();
 
     const double kbSec = bytesPerSec / 1024.0;

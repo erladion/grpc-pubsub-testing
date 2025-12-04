@@ -19,9 +19,11 @@ using grpc::ServerCompletionQueue;
 using grpc::ServerContext;
 
 class CallData {
+  const size_t MAX_QUEUE_BYTES = 50 * 1024 * 1024;
+
 public:
   CallData(broker::BrokerService::AsyncService* service, ServerCompletionQueue* cq)
-      : m_pService(service), m_pCompletionQueue(cq), m_stream(&m_serverContext), m_status(CONNECT) {
+      : m_pService(service), m_pCompletionQueue(cq), m_stream(&m_serverContext), m_status(CONNECT), m_writeInProgress(false), m_currentQueueBytes(0) {
     m_serverContext.set_compression_algorithm(GRPC_COMPRESS_GZIP);
     m_connectTag = {this, CONNECT};
     m_readTag = {this, READ};
@@ -47,7 +49,18 @@ public:
 
   void AsyncSend(const broker::BrokerPayload& msg) {
     std::lock_guard<std::mutex> lock(m_queueMutex);
+
+    if (m_currentQueueBytes > MAX_QUEUE_BYTES) {
+      std::cerr << "Client " << m_clientId << " is too slow. Dropping connection" << std::endl;
+
+      m_status = WRITE;
+      delete this;
+      return;
+    }
+
     m_writeQueue.push_back(msg);
+    m_currentQueueBytes += msg->ByteSizeLong();
+
     if (!m_writeInProgress) {
       WriteNextItem();
     }
@@ -87,16 +100,11 @@ private:
 
       if (topic.empty()) {
         std::cout << "Warning: Client " << m_clientId << " sent empty subscription topic" << std::endl;
-        m_stream.Read(&m_incomingMessage, &m_readTag);
-        return;
-      }
-
-      {
+      } else {
         std::lock_guard<std::mutex> lock(m_subscriptionMutex);
         m_subscriptions.insert(topic);
+        std::cout << "Client " << m_clientId << " subscribed to: " << topic << std::endl;
       }
-
-      std::cout << "Client " << m_clientId << " subscribed to: " << topic << std::endl;
 
       m_stream.Read(&m_incomingMessage, &m_readTag);
       return;
@@ -114,26 +122,37 @@ private:
   void HandleWrite(bool ok) {
     std::lock_guard<std::mutex> lock(m_queueMutex);
     m_writeInProgress = false;
-    if (!ok)
+    if (!ok) {
       return;
-    if (!m_writeQueue.empty())
+    }
+
+    if (!m_writeQueue.empty()) {
       WriteNextItem();
+    }
   }
 
   void WriteNextItem() {
     if (m_writeQueue.empty()) {
       return;
     }
-    m_currentWriteMessage = m_writeQueue.front();
+
+    m_currentWriteMessagePtr = m_writeQueue.front();
     m_writeQueue.pop_front();
     m_writeInProgress = true;
 
+    size_t size = m_currentWriteMessagePtr.ByteSizeLong();
+    if (m_currentQueueBytes >= size) {
+      m_currentQueueBytes -= size;
+    } else {
+      m_currentQueueBytes = 0;
+    }
+
     grpc::WriteOptions options;
-    if (m_currentWriteMessage.payload().ByteSizeLong() <= 1024) {
+    if (size <= 1024) {
       options.set_no_compression();
     }
 
-    m_stream.Write(m_currentWriteMessage, &m_writeTag);
+    m_stream.Write(*m_currentWriteMessagePtr, &m_writeTag);
   }
 
   void Cleanup() {
@@ -147,15 +166,18 @@ private:
   ServerContext m_serverContext;
 
   broker::BrokerPayload m_incomingMessage;
-  broker::BrokerPayload m_currentWriteMessage;
+
+  std::deque<broker::BrokerPayload> m_writeQueue;
+  std::shared_ptr<broker::BrokerPayload> m_currentWriteMessagePtr;
+
+  size_t m_currentQueueBytes;
+
   ServerAsyncReaderWriter<broker::BrokerPayload, broker::BrokerPayload> m_stream;
 
   OpType m_status;
-
   std::string m_clientId;
 
-  std::deque<broker::BrokerPayload> m_writeQueue;
-  bool m_writeInProgress = false;
+  bool m_writeInProgress;
   std::mutex m_queueMutex;
 
   std::unordered_set<std::string> m_subscriptions;
