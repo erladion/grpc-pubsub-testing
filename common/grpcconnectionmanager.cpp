@@ -81,7 +81,7 @@ void GrpcConnectionManager::onEnvelopeReceived(const broker::BrokerPayload& msg)
     QJsonObject obj = doc.object();
 
     IncomingTransfer newItem;
-    newItem.intendedFileName = obj["filename"].toString();
+    newItem.intendedFilename = obj["filename"].toString();
     newItem.originalTopic = QString::fromStdString(msg.topic());
     newItem.totalChunks = -1;
     newItem.receivedChunks = 0;
@@ -116,7 +116,7 @@ void GrpcConnectionManager::onEnvelopeReceived(const broker::BrokerPayload& msg)
     transfer.totalChunks = msg.sequence_count();
 
     QByteArray chunkData = QByteArray::fromStdString(msg.raw_data());
-    qint64 offset = static_cast<qint64>(seqNum) * STREAM_CHUNK_SIZE;
+    qint64 offset = static_cast<qint64>(msg.sequence_number()) * STREAM_CHUNK_SIZE;
 
     if (transfer.tempFile && transfer.tempFile->isOpen()) {
       transfer.tempFile->seek(offset);
@@ -379,7 +379,7 @@ void GrpcConnectionManager::sendFileInternal(const QString& key, const QString& 
   footerMsg.set_topic(key.toStdString());
   footerMsg.set_transfer_id(transferId);
   footerMsg.set_raw_data(finalHash.toStdString());
-  sendRawEnvelope(footerMsg);)
+  sendRawEnvelope(footerMsg);
 }
 
 bool GrpcConnectionManager::sendRawEnvelope(const broker::BrokerPayload& envelope) {

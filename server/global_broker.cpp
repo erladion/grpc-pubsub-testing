@@ -27,10 +27,10 @@ void GlobalBroker::Broadcast(const broker::BrokerPayload& msg, CallData* sender)
   auto sharedMsg = std::make_shared<broker::BrokerPayload>(msg);
 
   bool shouldForwardToBridges = false;
-  if (forwardMsg.origin_broker_id().empty()) {
-    forwardMsg.set_origin_broker_id(m_brokerId);
+  if (sharedMsg->origin_broker_id().empty()) {
+    sharedMsg->set_origin_broker_id(m_brokerId);
     shouldForwardToBridges = true;
-  } else if (forwardMsg.origin_broker_id() == m_brokerId) {
+  } else if (sharedMsg->origin_broker_id() == m_brokerId) {
     shouldForwardToBridges = true;
   }
 

@@ -47,7 +47,7 @@ public:
     }
   }
 
-  void AsyncSend(const broker::BrokerPayload& msg) {
+  void AsyncSend(std::shared_ptr<broker::BrokerPayload> msg) {
     std::lock_guard<std::mutex> lock(m_queueMutex);
 
     if (m_currentQueueBytes > MAX_QUEUE_BYTES) {
@@ -140,7 +140,7 @@ private:
     m_writeQueue.pop_front();
     m_writeInProgress = true;
 
-    size_t size = m_currentWriteMessagePtr.ByteSizeLong();
+    size_t size = m_currentWriteMessagePtr->ByteSizeLong();
     if (m_currentQueueBytes >= size) {
       m_currentQueueBytes -= size;
     } else {
@@ -167,7 +167,7 @@ private:
 
   broker::BrokerPayload m_incomingMessage;
 
-  std::deque<broker::BrokerPayload> m_writeQueue;
+  std::deque<std::shared_ptr<broker::BrokerPayload>> m_writeQueue;
   std::shared_ptr<broker::BrokerPayload> m_currentWriteMessagePtr;
 
   size_t m_currentQueueBytes;

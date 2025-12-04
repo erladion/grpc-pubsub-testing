@@ -86,7 +86,7 @@ bool GrpcWorker::writeMessage(const broker::BrokerPayload& msg) {
   if (m_stream) {
     grpc::WriteOptions options;
 
-    if (key != "__CHUNK__" && msg.payload().ByteSizeLong() <= 1024) {
+    if (msg.payload().ByteSizeLong() <= 1024) {
       options.set_no_compression();
     }
 
