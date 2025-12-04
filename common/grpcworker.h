@@ -26,7 +26,6 @@ protected:
   void run() override;
 
 signals:
-  // Emitted when a message arrives from the Broker
   void payloadReceived(const QString& handlerKey, const QByteArray& rawData);
   void connected();
   void disconnected();

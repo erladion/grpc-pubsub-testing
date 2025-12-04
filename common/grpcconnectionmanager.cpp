@@ -73,71 +73,107 @@ GrpcConnectionManager::GrpcConnectionManager(const QString& address) : m_pWorker
 
 void GrpcConnectionManager::onEnvelopeReceived(const broker::BrokerPayload& msg) {
   QString handlerKey = QString::fromStdString(msg.handler_key());
+  QString transferId = QString::fromStdString(msg.transfer_id());
+
+  if (handlerKey == "__FILE_META__") {
+    QMutexLocker lock(&m_mapMutex);
+    QJsonDocument doc = QJsonDocument::fromJson(QByteArray::fromStdString(msg.raw_data()));
+    QJsonObject obj = doc.object();
+
+    IncomingTransfer newItem;
+    newItem.intendedFileName = obj["filename"].toString();
+    newItem.originalTopic = QString::fromStdString(msg.topic());
+    newItem.totalChunks = -1;
+    newItem.receivedChunks = 0;
+    newItem.lastUpdateTimestamp = QDateTime::currentMSecsSinceEpoch();
+
+    QString tempDir = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
+    QString safeId = transferId;
+    safeId.replace("{", "").replace("}", "").replace("-", "");
+    newItem.tempFilePath = tempDir + "/grpc_" + safeId + ".dat";
+    newItem.tempFile = new QFile(newItem.tempFilePath);
+    if (!newItem.tempFile->open(QIODevice::ReadWrite)) {
+      qCritical() << "Failed to create temp file:" << newItem.tempFilePath;
+      delete newItem.tempFile;
+      return;
+    }
+
+    newItem.hasher = new QCryptographicHash(QCryptographicHash::Sha256);
+    m_incomingTransfers.insert(transferId, newItem);
+    qDebug() << "Incoming File Transfer Started:" << newItem.intendedFilename;
+    return;
+  }
 
   if (handlerKey == "__CHUNK__") {
     QMutexLocker lock(&m_mapMutex);
 
-    QString transferId = QString::fromStdString(msg.transfer_id());
-    int seqNum = msg.sequence_number();
-    int seqCount = msg.sequence_count();
-
-    QString originalTopic = QString::fromStdString(msg.topic());
-
     if (!m_incomingTransfers.contains(transferId)) {
-      IncomingTransfer newItem;
-      newItem.totalChunks = seqCount;
-      newItem.receivedChunks = 0;
-      newItem.originalTopic = originalTopic;
-      newItem.lastUpdateTimestamp = QDateTime::currentMSecsSinceEpoch();
+      return;
+    }
 
-      QString tempDir = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
-      QDir dir(tempDir);
+    IncomingTransfer& transfer = m_incomingTransfers[transferId];
+    transfer.lastUpdateTimestamp = QDateTime::currentMSecsSinceEpoch();
+    transfer.totalChunks = msg.sequence_count();
 
-      if (!dir.exists()) {
-        dir.mkpath(".");
+    QByteArray chunkData = QByteArray::fromStdString(msg.raw_data());
+    qint64 offset = static_cast<qint64>(seqNum) * STREAM_CHUNK_SIZE;
+
+    if (transfer.tempFile && transfer.tempFile->isOpen()) {
+      transfer.tempFile->seek(offset);
+      transfer.tempFile->write(chunkData);
+
+      if (transfer.hasher) {
+        transfer.hasher->addData(chunkData);
       }
 
-      QString safeId = transferId;
-      safeId.replace("{", "").replace("}", "").replace("-", "");
-      newItem.tempFilePath = dir.filePath("grpc_" + safeId + ".dat");
-      newItem.tempFile = new QFile(newItem.tempFilePath);
-      if (!newItem.tempFile->open(QIODevice::ReadWrite)) {
-        qCritical() << "Failed to create temp file:" << newItem.tempFilePath;
-        delete newItem.tempFile;
-        return;
-      }
+      transfer.receivedChunks++;
+    }
+    return;
+  }
 
-      m_incomingTransfers.insert(transferId, newItem);
+  if (handlerKey == "__FILE_FOOTER__") {
+    QMutexLocker lock(&m_mapMutex);
+    if (!m_incomingTransfers.contains(transferId)) {
+      return;
     }
 
     IncomingTransfer& transfer = m_incomingTransfers[transferId];
 
-    if (transfer.tempFile && transfer.tempFile->isOpen()) {
-      QByteArray chunkData = QByteArray::fromStdString(msg.raw_data());
-      qint64 offset = static_cast<qint64>(seqNum) * STREAM_CHUNK_SIZE;
+    QByteArray senderHash = QByteArray::fromStdString(msg.raw_data());
+    QByteArray localHash = transfer.hasher->result();
 
-      if (!transfer.tempFile->seek(offset)) {
-        qWarning() << "Seek failed for chunk" << seqNum;
+    delete transfer.hasher;
+    transfer.hasher = nullptr;
+    transfer.tempFile->close();
+    delete transfer.tempFile;
+    transfer.tempFile = nullptr;
+
+    if (localHash != senderHash) {
+      qCritical() << "File corruption! Checksum mismatch.";
+      QFile::remove(transfer.tempFilePath);
+    } else {
+      qDebug() << "File Download Verified:" << transfer.intendedFilename;
+
+      QString downDir = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
+      QString finalPath = downDir + "/" + transfer.intendedFilename;
+
+      int counter = 1;
+      while (QFile::exists(finalPath)) {
+        QString base = QFileInfo(transfer.intendedFilename).baseName();
+        QString ext = QFileInfo(transfer.intendedFilename).completeSuffix();
+
+        finalPath = downDir + "/" + base + "_" + QString::number(counter++) + "." + ext;
       }
 
-      transfer.tempFile->write(chunkData);
-      transfer.receivedChunks++;
-    }
+      if (QFile::rename(transfer.tempFilePath, finalPath)) {
+        QString topic = transfer.originalTopic;
+        m_incomingTransfers.remove(transferId);
+        lock.unlock();
 
-    if (transfer.receivedChunks >= transfer.totalChunks) {
-      qDebug() << "Download complete:" << transfer.tempFilePath;
-
-      transfer.tempFile->close();
-      delete transfer.tempFile;
-      transfer.tempFile = nullptr;
-
-      QString finalPath = transfer.tempFilePath;
-      QString topic = transfer.originalTopic;
-
-      m_incomingTransfers.remove(transferId);
-      lock.unlock();
-
-      processFilePayload(topic, finalPath);
+        processFilePayload(topic, finalPath);
+      } else {
+        qCritical() << "Failed to rename/move temp file";
+      }
     }
     return;
   }
@@ -169,8 +205,7 @@ void GrpcConnectionManager::processFilePayload(const QString& key, const QString
   } else if (m_handlers.contains(key)) {
     QFile f(filePath);
     if (f.open(QIODevice::ReadOnly)) {
-      QByteArray data = f.readAll();  // Load entire file into RAM
-      m_handlers[key](data);
+      m_handlers[key](f.readAll());  // Load entire file into RAM
       f.close();
     }
     QFile::remove(filePath);
@@ -205,6 +240,7 @@ void GrpcConnectionManager::registerInternal(const QString& key, MessageCallback
 void GrpcConnectionManager::registerFileInternal(const QString& key, FileCallback callback) {
   QMutexLocker lock(&m_mapMutex);
   m_fileHandlers.insert(key, callback);
+
   if (m_isConnected) {
     broker::BrokerPayload subMsg;
     subMsg.set_handler_key("__SUBSCRIBE__");
@@ -255,22 +291,43 @@ void GrpcConnectionManager::sendFileInternal(const QString& key, const QString& 
   }
 
   QFile file(filePath);
-
   if (!file.open(QIODevice::ReadOnly)) {
     qWarning() << "Failed to open file for streaming:" << filePath;
     return;
   }
 
+  QFileInfo fileInfo(filePath);
+  QString uuid = QUuid::createUuid().toString();
+  std::string transferId = uuid.toStdString();
   qint64 totalSize = file.size();
 
+  QJsonObject meta;
+  meta["filename"] = fileInfo.fileName();
+  meta["size"] = totalSize;
+  meta["transfer_id"] = uuid;
+
+  broker::BrokerPayload metaMsg;
+  metaMsg.set_handler_key("__FILE_META__");
+  metaMsg.set_topic(key.toStdString());
+  metaMsg.set_transfer_id(transferId);
+  metaMsg.set_raw_data(QJsonDocument(meta).toJson(QJsonDocument::Compact).toStdString());
+
+  if (!sendRawEnvelope(metaMsg)) {
+    return;
+  }
+
   int totalChunks = (totalSize + STREAM_CHUNK_SIZE - 1) / STREAM_CHUNK_SIZE;
-  std::string transferId = QUuid::createUuid().toString().toStdString();
-
-  qDebug() << "Streaming file:" << filePath << "| Chunks:" << totalChunks;
-
   int sequence = 0;
+  qint64 bytesSent = 0;
+
+  qDebug() << "Starting upload:" << filePath << "| Hash:" << checksum.toHex();
+
+  QCryptographicHash hasher(QCryptographicHash::Sha256);
   while (!file.atEnd()) {
     QByteArray chunkData = file.read(STREAM_CHUNK_SIZE);
+    bytesSent += chunkData.size();
+
+    hasher.addData(chunkData);
 
     broker::BrokerPayload msg;
     msg.set_handler_key("__CHUNK__");
@@ -280,13 +337,32 @@ void GrpcConnectionManager::sendFileInternal(const QString& key, const QString& 
     msg.set_sequence_count(totalChunks);
     msg.set_raw_data(chunkData.constData(), chunkData.size());
 
-    bool result = sendRawEnvelope(msg);
-    if (!result) {
-      qCritical() << "Upload aborted: Connection lost.";
+    int retries = 0;
+    bool success = false;
+    while (retries < 5) {
+      if (sendRawEnvelope(msg)) {
+        success = true;
+        break;
+      }
+      QThread::msleep(500);
+      retries++;
+    }
+
+    if (!success) {
+      qCritical() << "Upload failed. Connection lost.";
       break;
     }
   }
   file.close();
+
+  QByteArray finalHash = hasher.result();
+  broker::BrokerPayload footerMsg;
+
+  footerMsg.set_handler_key("__FILE_FOOTER__");
+  footerMsg.set_topic(key.toStdString());
+  footerMsg.set_transfer_id(transferId);
+  footerMsg.set_raw_data(finalHash.toStdString());
+  sendRawEnvelope(footerMsg);)
 }
 
 bool GrpcConnectionManager::sendRawEnvelope(const broker::BrokerPayload& envelope) {
@@ -296,13 +372,6 @@ bool GrpcConnectionManager::sendRawEnvelope(const broker::BrokerPayload& envelop
   }
   return result;
 }
-
-// void GrpcConnectionManager::onPayloadReceived(const QString& key, const QByteArray& data) {
-//   QMutexLocker lock(&m_mapMutex);
-//   if (m_handlers.contains(key)) {
-//     m_handlers[key](data);
-//   }
-// }
 
 void GrpcConnectionManager::onWorkerConnected() {
   QMutexLocker lock(&m_mapMutex);
@@ -340,9 +409,8 @@ void GrpcConnectionManager::onCleanupTimer() {
       if (it.value().tempFile) {
         it.value().tempFile->close();
         delete it.value().tempFile;
-        QFile::remove(it.value().tempFilePath);
       }
-
+      QFile::remove(it.value().tempFilePath);
       it = m_incomingTransfers.erase(it);
     } else {
       ++it;

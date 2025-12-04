@@ -8,6 +8,10 @@
 #include <QObject>
 #include <QTimer>
 
+#include <QCryptographicHash>
+#include <QJsonDocument>
+#include <QJsonObject>
+
 #include <functional>
 
 #include "grpcworker.h"
@@ -19,13 +23,16 @@ using FileCallback = std::function<void(const QString&)>;
 
 struct IncomingTransfer {
   QString originalTopic;
-  int totalChunks;
-  int receivedChunks;
+  QString intendedFilename;
+
+  int totalChunks = 0;
+  int receivedChunks = 0;
 
   QFile* tempFile = nullptr;
   QString tempFilePath;
 
-  qint64 lastUpdateTimestamp;
+  QCryptographicHash* hasher = nullptr;
+  qint64 lastUpdateTimestamp = 0;
 };
 
 class GrpcConnectionManager : public QObject {
@@ -33,10 +40,18 @@ class GrpcConnectionManager : public QObject {
 public:
   static void init(const QString& address = "127.0.0.1:50051");
 
+  static void sendData(const QString& key, const QByteArray& data);
+
+  static void sendFile(const QString& key, const QString& filePath);
+
   template <typename T>
   static void sendMessage(const QString& key, const T& protobufMessage) {
     instance().sendMessageInternal(key, protobufMessage);
   }
+
+  static void registerCallback(const QString& key, MessageCallback callback);
+
+  static void registerFileCallback(const QString& key, FileCallback callback);
 
   template <typename T>
   static void registerCallback(const QString& key, std::function<void(const T&)> callback) {
@@ -49,14 +64,6 @@ public:
       }
     });
   }
-
-  static void registerCallback(const QString& key, MessageCallback callback);
-
-  static void registerFileCallback(const QString& key, FileCallback callback);
-
-  static void sendData(const QString& key, const QByteArray& data);
-
-  static void sendFile(const QString& key, const QString& filePath);
 
   template <typename T>
   static bool tryUnpack(const QByteArray& raw, T& outMsg) {
@@ -105,7 +112,6 @@ private slots:
   void processPayload(const QString& key, const QByteArray& data);
   void processFilePayload(const QString& key, const QString& filePath);
 
-  // void onPayloadReceived(const QString& key, const QByteArray& data);
   void onWorkerConnected();
   void onWorkerDisconnected();
 
