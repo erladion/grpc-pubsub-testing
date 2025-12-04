@@ -7,6 +7,7 @@
 #include <iostream>
 #include <mutex>
 #include <set>
+#include <unordered_set>
 
 #include "async_structs.h"
 #include "global_broker.h"
@@ -31,10 +32,7 @@ public:
 
   bool IsSubscribed(const std::string& key) {
     std::lock_guard<std::mutex> lock(m_subscriptionMutex);
-    // If subscriptions is empty, maybe we broadcast everything?
-    // Or if strictly pub/sub, we return false.
-    // Let's assume strict Pub/Sub:
-    return m_subscriptions.count(key) > 0;
+    return m_subscriptions.find(key) != m_subscriptions.end();
   }
 
   void Proceed(Tag* tag, bool ok) {
@@ -100,7 +98,6 @@ private:
 
       std::cout << "Client " << m_clientId << " subscribed to: " << topic << std::endl;
 
-      // Do NOT broadcast this. Just read the next message.
       m_stream.Read(&m_incomingMessage, &m_readTag);
       return;
     }
@@ -161,7 +158,7 @@ private:
   bool m_writeInProgress = false;
   std::mutex m_queueMutex;
 
-  std::set<std::string> m_subscriptions;
+  std::unordered_set<std::string> m_subscriptions;
   std::mutex m_subscriptionMutex;
 
   Tag m_connectTag;
