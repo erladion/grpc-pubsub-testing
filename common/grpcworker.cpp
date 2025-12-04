@@ -59,15 +59,16 @@ void GrpcWorker::run() {
 
     while (m_running && m_stream->Read(&incomingMsg)) {
       emit envelopeReceived(incomingMsg);
-
-      QString key = QString::fromStdString(incomingMsg.handler_key());
-
-      std::string rawStr;
-      if (incomingMsg.payload().SerializeToString(&rawStr)) {
-        QByteArray rawData(rawStr.data(), static_cast<int>(rawStr.size()));
-        emit payloadReceived(key, rawData);
-      }
     }
+
+    //   QString key = QString::fromStdString(incomingMsg.handler_key());
+
+    //   std::string rawStr;
+    //   if (incomingMsg.payload().SerializeToString(&rawStr)) {
+    //     QByteArray rawData(rawStr.data(), static_cast<int>(rawStr.size()));
+    //     emit payloadReceived(key, rawData);
+    //   }
+    // }
 
     if (m_running) {
       qWarning() << "Disconnected from Broker. Attempting reconnect in 3s...";

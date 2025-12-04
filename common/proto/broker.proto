@@ -8,7 +8,12 @@ message BrokerPayload {
   string sender_id = 2;
   string topic = 3;
   google.protobuf.Any payload = 4;
-  string origin_broker_id = 6;
+  string origin_broker_id = 5;
+
+  string transfer_id = 6;
+  int32 sequence_number = 8;
+  int32 sequence_count = 9;
+  bytes raw_data = 10;
 }
 
 service BrokerService {
