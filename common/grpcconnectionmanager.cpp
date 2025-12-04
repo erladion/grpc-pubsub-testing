@@ -120,7 +120,16 @@ void GrpcConnectionManager::onEnvelopeReceived(const broker::BrokerPayload& msg)
 
     if (transfer.tempFile && transfer.tempFile->isOpen()) {
       transfer.tempFile->seek(offset);
-      transfer.tempFile->write(chunkData);
+      qint64 bytesWritten = transfer.tempFile->write(chunkData);
+
+      if (bytesWritten != chunkData.size()) {
+        qCritical() << "Disk full! Write failed for:" << transfer.intendedFilename;
+
+        transfer.tempFile->close();
+        QFile::remove(transfer.tempFilePath);
+        m_incomingTransfers.remove(transferId);
+        return;
+      }
 
       if (transfer.hasher) {
         transfer.hasher->addData(chunkData);
@@ -299,6 +308,7 @@ void GrpcConnectionManager::sendFileInternal(const QString& key, const QString& 
   QFileInfo fileInfo(filePath);
   QString uuid = QUuid::createUuid().toString();
   std::string transferId = uuid.toStdString();
+  std::string topic = key.toStdString();
   qint64 totalSize = file.size();
 
   QJsonObject meta;
@@ -308,7 +318,7 @@ void GrpcConnectionManager::sendFileInternal(const QString& key, const QString& 
 
   broker::BrokerPayload metaMsg;
   metaMsg.set_handler_key("__FILE_META__");
-  metaMsg.set_topic(key.toStdString());
+  metaMsg.set_topic(topic);
   metaMsg.set_transfer_id(transferId);
   metaMsg.set_raw_data(QJsonDocument(meta).toJson(QJsonDocument::Compact).toStdString());
 
@@ -318,20 +328,23 @@ void GrpcConnectionManager::sendFileInternal(const QString& key, const QString& 
 
   int totalChunks = (totalSize + STREAM_CHUNK_SIZE - 1) / STREAM_CHUNK_SIZE;
   int sequence = 0;
-  qint64 bytesSent = 0;
 
-  qDebug() << "Starting upload:" << filePath << "| Hash:" << checksum.toHex();
+  qDebug() << "Starting upload:" << filePath;
 
   QCryptographicHash hasher(QCryptographicHash::Sha256);
+
   while (!file.atEnd()) {
     QByteArray chunkData = file.read(STREAM_CHUNK_SIZE);
-    bytesSent += chunkData.size();
+    if (chunkData.isEmpty() && !file.atEnd()) {
+      qCritical() << "File read error! Aborting transfer";
+      break;
+    }
 
     hasher.addData(chunkData);
 
     broker::BrokerPayload msg;
     msg.set_handler_key("__CHUNK__");
-    msg.set_topic(key.toStdString());
+    msg.set_topic(topic);
     msg.set_transfer_id(transferId);
     msg.set_sequence_number(sequence++);
     msg.set_sequence_count(totalChunks);
@@ -352,6 +365,10 @@ void GrpcConnectionManager::sendFileInternal(const QString& key, const QString& 
       qCritical() << "Upload failed. Connection lost.";
       break;
     }
+
+    if (sequence & 16 == 0) {
+      QThread::msleep(1);
+    }
   }
   file.close();
 
@@ -366,11 +383,10 @@ void GrpcConnectionManager::sendFileInternal(const QString& key, const QString& 
 }
 
 bool GrpcConnectionManager::sendRawEnvelope(const broker::BrokerPayload& envelope) {
-  bool result = false;
-  if (m_pWorker) {
-    result = m_pWorker->writeMessage(envelope);
+  if (!m_pWorker) {
+    return false;
   }
-  return result;
+  return m_pWorker->writeMessage(envelope);
 }
 
 void GrpcConnectionManager::onWorkerConnected() {
