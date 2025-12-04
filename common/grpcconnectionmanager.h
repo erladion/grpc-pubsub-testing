@@ -6,6 +6,8 @@
 #include <QMap>
 #include <QMutex>
 #include <QObject>
+#include <QTimer>
+
 #include <functional>
 
 #include "grpcworker.h"
@@ -89,7 +91,7 @@ private:
   void sendDataInternal(const QString& key, const QByteArray& data);
   void sendFileInternal(const QString& key, const QString& filePath);
 
-  void sendRawEnvelope(const broker::BrokerPayload& envelope);
+  bool sendRawEnvelope(const broker::BrokerPayload& envelope);
 
   explicit GrpcConnectionManager(const QString& address);
   ~GrpcConnectionManager();
@@ -107,6 +109,8 @@ private slots:
   void onWorkerConnected();
   void onWorkerDisconnected();
 
+  void onCleanupTimer();
+
 private:
   GrpcWorker* m_pWorker;
   QHash<QString, MessageCallback> m_handlers;
@@ -118,4 +122,6 @@ private:
   bool m_isConnected;
   std::string m_appName;
   static GrpcConnectionManager* m_pInstance;
+
+  QTimer m_cleanupTimer;
 };

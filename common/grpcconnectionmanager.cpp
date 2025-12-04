@@ -66,6 +66,9 @@ GrpcConnectionManager::GrpcConnectionManager(const QString& address) : m_pWorker
   connect(m_pWorker, &GrpcWorker::connected, this, &GrpcConnectionManager::onWorkerConnected, Qt::QueuedConnection);
   connect(m_pWorker, &GrpcWorker::disconnected, this, &GrpcConnectionManager::onWorkerDisconnected, Qt::QueuedConnection);
   m_pWorker->start();
+
+  connect(&m_cleanupTimer, &QTimer::timeout, this, &GrpcConnectionManager::onCleanupTimer);
+  m_cleanupTimer.start(10000);
 }
 
 void GrpcConnectionManager::onEnvelopeReceived(const broker::BrokerPayload& msg) {
@@ -246,6 +249,11 @@ void GrpcConnectionManager::sendDataInternal(const QString& key, const QByteArra
 }
 
 void GrpcConnectionManager::sendFileInternal(const QString& key, const QString& filePath) {
+  if (!m_isConnected) {
+    qWarning() << "Cannot stream file: No connection to broker.";
+    return;
+  }
+
   QFile file(filePath);
 
   if (!file.open(QIODevice::ReadOnly)) {
@@ -270,17 +278,23 @@ void GrpcConnectionManager::sendFileInternal(const QString& key, const QString& 
     msg.set_transfer_id(transferId);
     msg.set_sequence_number(sequence++);
     msg.set_sequence_count(totalChunks);
-    msg.set_raw_data(chunkData.toStdString());
+    msg.set_raw_data(chunkData.constData(), chunkData.size());
 
-    sendRawEnvelope(msg);
+    bool result = sendRawEnvelope(msg);
+    if (!result) {
+      qCritical() << "Upload aborted: Connection lost.";
+      break;
+    }
   }
   file.close();
 }
 
-void GrpcConnectionManager::sendRawEnvelope(const broker::BrokerPayload& envelope) {
+bool GrpcConnectionManager::sendRawEnvelope(const broker::BrokerPayload& envelope) {
+  bool result = false;
   if (m_pWorker) {
-    m_pWorker->writeMessage(envelope);
+    result = m_pWorker->writeMessage(envelope);
   }
+  return result;
 }
 
 // void GrpcConnectionManager::onPayloadReceived(const QString& key, const QByteArray& data) {
@@ -310,4 +324,28 @@ void GrpcConnectionManager::onWorkerConnected() {
 void GrpcConnectionManager::onWorkerDisconnected() {
   QMutexLocker lock(&m_mapMutex);
   m_isConnected = false;
+}
+
+void GrpcConnectionManager::onCleanupTimer() {
+  QMutexLocker lock(&m_mapMutex);
+
+  qint64 now = QDateTime::currentMSecsSinceEpoch();
+  static const qint64 timeoutLimit = 30000;  // 30 secs
+
+  auto it = m_incomingTransfers.begin();
+  while (it != m_incomingTransfers.end()) {
+    if (now - it.value().lastUpdateTimestamp > timeoutLimit) {
+      qWarning() << "Transfer timed out. Cleaning up:" << it.key();
+
+      if (it.value().tempFile) {
+        it.value().tempFile->close();
+        delete it.value().tempFile;
+        QFile::remove(it.value().tempFilePath);
+      }
+
+      it = m_incomingTransfers.erase(it);
+    } else {
+      ++it;
+    }
+  }
 }

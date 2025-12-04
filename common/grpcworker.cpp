@@ -99,7 +99,7 @@ bool GrpcWorker::writeMessage(const broker::BrokerPayload& msg) {
       options.set_no_compression();
     }
 
-    if (!m_stream->Write(msg)) {
+    if (!m_stream->Write(msg, options)) {
       qWarning() << "Failed to write message to gRPC stream.";
       return false;
     }
