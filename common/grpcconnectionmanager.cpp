@@ -181,7 +181,7 @@ void GrpcConnectionManager::onEnvelopeReceived(const broker::BrokerPayload& msg)
 
         processFilePayload(topic, finalPath);
       } else {
-        qCritical() << "Failed to rename/move temp file";
+        qCritical() << "Failed to rename/move temp file to " << finalPath;
       }
     }
     return;
