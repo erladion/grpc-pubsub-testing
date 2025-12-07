@@ -43,7 +43,7 @@ void GlobalBroker::Broadcast(const broker::BrokerPayload& msg, CallData* sender)
         continue;
       }
 
-      if (client->IsSubscribed(sharedMsg->handler_key())) {
+      if (client->IsSubscribed(sharedMsg->topic())) {
         client->AsyncSend(sharedMsg);
       }
     }
