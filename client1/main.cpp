@@ -27,5 +27,7 @@ int main(int argc, char* argv[]) {
     GrpcConnectionManager::sendMessage("MessageReceived", update);
   });
 
+  GrpcConnectionManager::registerFileCallback("file", [](const QString& path) { qWarning() << "Received file at path:" << path; });
+
   return a.exec();
 }

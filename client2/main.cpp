@@ -30,5 +30,7 @@ int main(int argc, char* argv[]) {
 
   t.start(2000);
 
+  QTimer::singleShot(5000, [&]() { GrpcConnectionManager::sendFile("file", "/mnt/c/Users/johan/Downloads/logo1.png"); });
+
   return a.exec();
 }
