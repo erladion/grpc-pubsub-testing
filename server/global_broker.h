@@ -50,6 +50,10 @@ private:
   std::atomic<bool> m_running;
   std::thread m_monitorThread;
   std::string m_brokerId;
+
+  std::mutex m_historyMutex;
+  std::unordered_set<std::string> m_seenMessageIds;
+  std::deque<std::string> m_messageIdOrder;
 };
 
 #endif  // GLOBAL_BROKER_H

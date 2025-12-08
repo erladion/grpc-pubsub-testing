@@ -6,6 +6,7 @@
 #include "safe_logger.h"
 
 #include <QObject>
+#include <QUuid>
 
 void GlobalBroker::Register(CallData* client) {
   std::unique_lock<std::shared_mutex> lock(m_clientMutex);
@@ -20,22 +21,47 @@ void GlobalBroker::Unregister(CallData* client) {
 }
 
 void GlobalBroker::Broadcast(const broker::BrokerPayload& msg, CallData* sender) {
+  broker::BrokerPayload forwardMsg = msg;
+
+  std::string uniqueId = forwardMsg.message_uuid();
+  if (uniqueId.empty()) {
+    uniqueId = QUuid::createUuid().toString().toStdString();
+    forwardMsg.set_message_uuid(uniqueId);
+  }
+
+  {
+    std::lock_guard<std::mutex> lock(m_historyMutex);
+
+    // If we have seen this ID, it's a loop or a duplicate. DROP IT.
+    if (m_seenMessageIds.count(uniqueId)) {
+      return;
+    }
+
+    // Mark as seen
+    m_seenMessageIds.insert(uniqueId);
+    m_messageIdOrder.push_back(uniqueId);
+
+    // Cleanup: Keep last 10,000 messages to prevent RAM leak
+    if (m_messageIdOrder.size() > 10000) {
+      std::string oldId = m_messageIdOrder.front();
+      m_messageIdOrder.pop_front();
+      m_seenMessageIds.erase(oldId);
+    }
+  }
+
   m_stats.totalMessagesProcessed++;
   m_stats.messagesThisInterval++;
   const size_t msgSize = msg.ByteSizeLong();
   m_stats.totalBytesProcessed += msgSize;
   m_stats.bytesThisInterval += msgSize;
 
-  auto sharedMsg = std::make_shared<broker::BrokerPayload>(msg);
-
-  bool shouldForwardToBridges = false;
-  if (sharedMsg->origin_broker_id().empty()) {
-    sharedMsg->set_origin_broker_id(m_brokerId);
-    shouldForwardToBridges = true;
-  } else if (sharedMsg->origin_broker_id() == m_brokerId) {
-    shouldForwardToBridges = true;
+  if (forwardMsg.origin_broker_id().empty()) {
+    forwardMsg.set_origin_broker_id(m_brokerId);
   }
 
+  auto sharedMsg = std::make_shared<broker::BrokerPayload>(msg);
+
+  // Local delivery
   {
     std::shared_lock<std::shared_mutex> lock(m_clientMutex);
     for (auto* client : m_clients) {
@@ -49,7 +75,8 @@ void GlobalBroker::Broadcast(const broker::BrokerPayload& msg, CallData* sender)
     }
   }
 
-  if (shouldForwardToBridges) {
+  // Bridge flooding
+  {
     std::lock_guard<std::mutex> lock(m_peerMutex);
     for (GrpcWorker* peer : m_peers) {
       peer->writeMessage(*sharedMsg);

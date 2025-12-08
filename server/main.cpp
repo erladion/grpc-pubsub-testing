@@ -32,8 +32,9 @@ int main(int argc, char* argv[]) {
 
   std::thread serverThread([]() {
     AsyncServer server;
-    server.Run("0.0.0.0:50051");
+    server.Run({"0.0.0.0:50051", "unix:///tmp/broker.sock"});
   });
+
   serverThread.detach();
   int result = a.exec();
 

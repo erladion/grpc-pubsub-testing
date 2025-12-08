@@ -218,7 +218,8 @@ class BrokerPayload final : public ::google::protobuf::Message
     kSenderIdFieldNumber = 2,
     kTopicFieldNumber = 3,
     kOriginBrokerIdFieldNumber = 5,
-    kTransferIdFieldNumber = 6,
+    kMessageUuidFieldNumber = 6,
+    kTransferIdFieldNumber = 7,
     kRawDataFieldNumber = 10,
     kPayloadFieldNumber = 4,
     kSequenceNumberFieldNumber = 8,
@@ -284,7 +285,22 @@ class BrokerPayload final : public ::google::protobuf::Message
   ::std::string* PROTOBUF_NONNULL _internal_mutable_origin_broker_id();
 
   public:
-  // string transfer_id = 6;
+  // string message_uuid = 6;
+  void clear_message_uuid() ;
+  const ::std::string& message_uuid() const;
+  template <typename Arg_ = const ::std::string&, typename... Args_>
+  void set_message_uuid(Arg_&& arg, Args_... args);
+  ::std::string* PROTOBUF_NONNULL mutable_message_uuid();
+  [[nodiscard]] ::std::string* PROTOBUF_NULLABLE release_message_uuid();
+  void set_allocated_message_uuid(::std::string* PROTOBUF_NULLABLE value);
+
+  private:
+  const ::std::string& _internal_message_uuid() const;
+  PROTOBUF_ALWAYS_INLINE void _internal_set_message_uuid(const ::std::string& value);
+  ::std::string* PROTOBUF_NONNULL _internal_mutable_message_uuid();
+
+  public:
+  // string transfer_id = 7;
   void clear_transfer_id() ;
   const ::std::string& transfer_id() const;
   template <typename Arg_ = const ::std::string&, typename... Args_>
@@ -353,8 +369,8 @@ class BrokerPayload final : public ::google::protobuf::Message
  private:
   class _Internal;
   friend class ::google::protobuf::internal::TcParser;
-  static const ::google::protobuf::internal::TcParseTable<4, 9,
-                                   1, 89,
+  static const ::google::protobuf::internal::TcParseTable<4, 10,
+                                   1, 101,
                                    2>
       _table_;
 
@@ -379,6 +395,7 @@ class BrokerPayload final : public ::google::protobuf::Message
     ::google::protobuf::internal::ArenaStringPtr sender_id_;
     ::google::protobuf::internal::ArenaStringPtr topic_;
     ::google::protobuf::internal::ArenaStringPtr origin_broker_id_;
+    ::google::protobuf::internal::ArenaStringPtr message_uuid_;
     ::google::protobuf::internal::ArenaStringPtr transfer_id_;
     ::google::protobuf::internal::ArenaStringPtr raw_data_;
     ::google::protobuf::Any* PROTOBUF_NULLABLE payload_;
@@ -605,7 +622,7 @@ inline void BrokerPayload::set_allocated_topic(::std::string* PROTOBUF_NULLABLE 
 
 // .google.protobuf.Any payload = 4;
 inline bool BrokerPayload::has_payload() const {
-  bool value = (_impl_._has_bits_[0] & 0x00000040u) != 0;
+  bool value = (_impl_._has_bits_[0] & 0x00000080u) != 0;
   PROTOBUF_ASSUME(!value || _impl_.payload_ != nullptr);
   return value;
 }
@@ -626,16 +643,16 @@ inline void BrokerPayload::unsafe_arena_set_allocated_payload(
   }
   _impl_.payload_ = reinterpret_cast<::google::protobuf::Any*>(value);
   if (value != nullptr) {
-    _impl_._has_bits_[0] |= 0x00000040u;
+    _impl_._has_bits_[0] |= 0x00000080u;
   } else {
-    _impl_._has_bits_[0] &= ~0x00000040u;
+    _impl_._has_bits_[0] &= ~0x00000080u;
   }
   // @@protoc_insertion_point(field_unsafe_arena_set_allocated:broker.BrokerPayload.payload)
 }
 inline ::google::protobuf::Any* PROTOBUF_NULLABLE BrokerPayload::release_payload() {
   ::google::protobuf::internal::TSanWrite(&_impl_);
 
-  _impl_._has_bits_[0] &= ~0x00000040u;
+  _impl_._has_bits_[0] &= ~0x00000080u;
   ::google::protobuf::Any* released = _impl_.payload_;
   _impl_.payload_ = nullptr;
   if (::google::protobuf::internal::DebugHardenForceCopyInRelease()) {
@@ -655,7 +672,7 @@ inline ::google::protobuf::Any* PROTOBUF_NULLABLE BrokerPayload::unsafe_arena_re
   ::google::protobuf::internal::TSanWrite(&_impl_);
   // @@protoc_insertion_point(field_release:broker.BrokerPayload.payload)
 
-  _impl_._has_bits_[0] &= ~0x00000040u;
+  _impl_._has_bits_[0] &= ~0x00000080u;
   ::google::protobuf::Any* temp = _impl_.payload_;
   _impl_.payload_ = nullptr;
   return temp;
@@ -670,7 +687,7 @@ inline ::google::protobuf::Any* PROTOBUF_NONNULL BrokerPayload::_internal_mutabl
 }
 inline ::google::protobuf::Any* PROTOBUF_NONNULL BrokerPayload::mutable_payload()
     ABSL_ATTRIBUTE_LIFETIME_BOUND {
-  _impl_._has_bits_[0] |= 0x00000040u;
+  _impl_._has_bits_[0] |= 0x00000080u;
   ::google::protobuf::Any* _msg = _internal_mutable_payload();
   // @@protoc_insertion_point(field_mutable:broker.BrokerPayload.payload)
   return _msg;
@@ -687,9 +704,9 @@ inline void BrokerPayload::set_allocated_payload(::google::protobuf::Any* PROTOB
     if (message_arena != submessage_arena) {
       value = ::google::protobuf::internal::GetOwnedMessage(message_arena, value, submessage_arena);
     }
-    _impl_._has_bits_[0] |= 0x00000040u;
+    _impl_._has_bits_[0] |= 0x00000080u;
   } else {
-    _impl_._has_bits_[0] &= ~0x00000040u;
+    _impl_._has_bits_[0] &= ~0x00000080u;
   }
 
   _impl_.payload_ = reinterpret_cast<::google::protobuf::Any*>(value);
@@ -761,11 +778,76 @@ inline void BrokerPayload::set_allocated_origin_broker_id(::std::string* PROTOBU
   // @@protoc_insertion_point(field_set_allocated:broker.BrokerPayload.origin_broker_id)
 }
 
-// string transfer_id = 6;
+// string message_uuid = 6;
+inline void BrokerPayload::clear_message_uuid() {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  _impl_.message_uuid_.ClearToEmpty();
+  _impl_._has_bits_[0] &= ~0x00000010u;
+}
+inline const ::std::string& BrokerPayload::message_uuid() const
+    ABSL_ATTRIBUTE_LIFETIME_BOUND {
+  // @@protoc_insertion_point(field_get:broker.BrokerPayload.message_uuid)
+  return _internal_message_uuid();
+}
+template <typename Arg_, typename... Args_>
+PROTOBUF_ALWAYS_INLINE void BrokerPayload::set_message_uuid(Arg_&& arg, Args_... args) {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  _impl_._has_bits_[0] |= 0x00000010u;
+  _impl_.message_uuid_.Set(static_cast<Arg_&&>(arg), args..., GetArena());
+  // @@protoc_insertion_point(field_set:broker.BrokerPayload.message_uuid)
+}
+inline ::std::string* PROTOBUF_NONNULL BrokerPayload::mutable_message_uuid()
+    ABSL_ATTRIBUTE_LIFETIME_BOUND {
+  ::std::string* _s = _internal_mutable_message_uuid();
+  // @@protoc_insertion_point(field_mutable:broker.BrokerPayload.message_uuid)
+  return _s;
+}
+inline const ::std::string& BrokerPayload::_internal_message_uuid() const {
+  ::google::protobuf::internal::TSanRead(&_impl_);
+  return _impl_.message_uuid_.Get();
+}
+inline void BrokerPayload::_internal_set_message_uuid(const ::std::string& value) {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  _impl_._has_bits_[0] |= 0x00000010u;
+  _impl_.message_uuid_.Set(value, GetArena());
+}
+inline ::std::string* PROTOBUF_NONNULL BrokerPayload::_internal_mutable_message_uuid() {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  _impl_._has_bits_[0] |= 0x00000010u;
+  return _impl_.message_uuid_.Mutable( GetArena());
+}
+inline ::std::string* PROTOBUF_NULLABLE BrokerPayload::release_message_uuid() {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  // @@protoc_insertion_point(field_release:broker.BrokerPayload.message_uuid)
+  if ((_impl_._has_bits_[0] & 0x00000010u) == 0) {
+    return nullptr;
+  }
+  _impl_._has_bits_[0] &= ~0x00000010u;
+  auto* released = _impl_.message_uuid_.Release();
+  if (::google::protobuf::internal::DebugHardenForceCopyDefaultString()) {
+    _impl_.message_uuid_.Set("", GetArena());
+  }
+  return released;
+}
+inline void BrokerPayload::set_allocated_message_uuid(::std::string* PROTOBUF_NULLABLE value) {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  if (value != nullptr) {
+    _impl_._has_bits_[0] |= 0x00000010u;
+  } else {
+    _impl_._has_bits_[0] &= ~0x00000010u;
+  }
+  _impl_.message_uuid_.SetAllocated(value, GetArena());
+  if (::google::protobuf::internal::DebugHardenForceCopyDefaultString() && _impl_.message_uuid_.IsDefault()) {
+    _impl_.message_uuid_.Set("", GetArena());
+  }
+  // @@protoc_insertion_point(field_set_allocated:broker.BrokerPayload.message_uuid)
+}
+
+// string transfer_id = 7;
 inline void BrokerPayload::clear_transfer_id() {
   ::google::protobuf::internal::TSanWrite(&_impl_);
   _impl_.transfer_id_.ClearToEmpty();
-  _impl_._has_bits_[0] &= ~0x00000010u;
+  _impl_._has_bits_[0] &= ~0x00000020u;
 }
 inline const ::std::string& BrokerPayload::transfer_id() const
     ABSL_ATTRIBUTE_LIFETIME_BOUND {
@@ -775,7 +857,7 @@ inline const ::std::string& BrokerPayload::transfer_id() const
 template <typename Arg_, typename... Args_>
 PROTOBUF_ALWAYS_INLINE void BrokerPayload::set_transfer_id(Arg_&& arg, Args_... args) {
   ::google::protobuf::internal::TSanWrite(&_impl_);
-  _impl_._has_bits_[0] |= 0x00000010u;
+  _impl_._has_bits_[0] |= 0x00000020u;
   _impl_.transfer_id_.Set(static_cast<Arg_&&>(arg), args..., GetArena());
   // @@protoc_insertion_point(field_set:broker.BrokerPayload.transfer_id)
 }
@@ -791,21 +873,21 @@ inline const ::std::string& BrokerPayload::_internal_transfer_id() const {
 }
 inline void BrokerPayload::_internal_set_transfer_id(const ::std::string& value) {
   ::google::protobuf::internal::TSanWrite(&_impl_);
-  _impl_._has_bits_[0] |= 0x00000010u;
+  _impl_._has_bits_[0] |= 0x00000020u;
   _impl_.transfer_id_.Set(value, GetArena());
 }
 inline ::std::string* PROTOBUF_NONNULL BrokerPayload::_internal_mutable_transfer_id() {
   ::google::protobuf::internal::TSanWrite(&_impl_);
-  _impl_._has_bits_[0] |= 0x00000010u;
+  _impl_._has_bits_[0] |= 0x00000020u;
   return _impl_.transfer_id_.Mutable( GetArena());
 }
 inline ::std::string* PROTOBUF_NULLABLE BrokerPayload::release_transfer_id() {
   ::google::protobuf::internal::TSanWrite(&_impl_);
   // @@protoc_insertion_point(field_release:broker.BrokerPayload.transfer_id)
-  if ((_impl_._has_bits_[0] & 0x00000010u) == 0) {
+  if ((_impl_._has_bits_[0] & 0x00000020u) == 0) {
     return nullptr;
   }
-  _impl_._has_bits_[0] &= ~0x00000010u;
+  _impl_._has_bits_[0] &= ~0x00000020u;
   auto* released = _impl_.transfer_id_.Release();
   if (::google::protobuf::internal::DebugHardenForceCopyDefaultString()) {
     _impl_.transfer_id_.Set("", GetArena());
@@ -815,9 +897,9 @@ inline ::std::string* PROTOBUF_NULLABLE BrokerPayload::release_transfer_id() {
 inline void BrokerPayload::set_allocated_transfer_id(::std::string* PROTOBUF_NULLABLE value) {
   ::google::protobuf::internal::TSanWrite(&_impl_);
   if (value != nullptr) {
-    _impl_._has_bits_[0] |= 0x00000010u;
+    _impl_._has_bits_[0] |= 0x00000020u;
   } else {
-    _impl_._has_bits_[0] &= ~0x00000010u;
+    _impl_._has_bits_[0] &= ~0x00000020u;
   }
   _impl_.transfer_id_.SetAllocated(value, GetArena());
   if (::google::protobuf::internal::DebugHardenForceCopyDefaultString() && _impl_.transfer_id_.IsDefault()) {
@@ -830,7 +912,7 @@ inline void BrokerPayload::set_allocated_transfer_id(::std::string* PROTOBUF_NUL
 inline void BrokerPayload::clear_sequence_number() {
   ::google::protobuf::internal::TSanWrite(&_impl_);
   _impl_.sequence_number_ = 0;
-  _impl_._has_bits_[0] &= ~0x00000080u;
+  _impl_._has_bits_[0] &= ~0x00000100u;
 }
 inline ::int32_t BrokerPayload::sequence_number() const {
   // @@protoc_insertion_point(field_get:broker.BrokerPayload.sequence_number)
@@ -838,7 +920,7 @@ inline ::int32_t BrokerPayload::sequence_number() const {
 }
 inline void BrokerPayload::set_sequence_number(::int32_t value) {
   _internal_set_sequence_number(value);
-  _impl_._has_bits_[0] |= 0x00000080u;
+  _impl_._has_bits_[0] |= 0x00000100u;
   // @@protoc_insertion_point(field_set:broker.BrokerPayload.sequence_number)
 }
 inline ::int32_t BrokerPayload::_internal_sequence_number() const {
@@ -854,7 +936,7 @@ inline void BrokerPayload::_internal_set_sequence_number(::int32_t value) {
 inline void BrokerPayload::clear_sequence_count() {
   ::google::protobuf::internal::TSanWrite(&_impl_);
   _impl_.sequence_count_ = 0;
-  _impl_._has_bits_[0] &= ~0x00000100u;
+  _impl_._has_bits_[0] &= ~0x00000200u;
 }
 inline ::int32_t BrokerPayload::sequence_count() const {
   // @@protoc_insertion_point(field_get:broker.BrokerPayload.sequence_count)
@@ -862,7 +944,7 @@ inline ::int32_t BrokerPayload::sequence_count() const {
 }
 inline void BrokerPayload::set_sequence_count(::int32_t value) {
   _internal_set_sequence_count(value);
-  _impl_._has_bits_[0] |= 0x00000100u;
+  _impl_._has_bits_[0] |= 0x00000200u;
   // @@protoc_insertion_point(field_set:broker.BrokerPayload.sequence_count)
 }
 inline ::int32_t BrokerPayload::_internal_sequence_count() const {
@@ -878,7 +960,7 @@ inline void BrokerPayload::_internal_set_sequence_count(::int32_t value) {
 inline void BrokerPayload::clear_raw_data() {
   ::google::protobuf::internal::TSanWrite(&_impl_);
   _impl_.raw_data_.ClearToEmpty();
-  _impl_._has_bits_[0] &= ~0x00000020u;
+  _impl_._has_bits_[0] &= ~0x00000040u;
 }
 inline const ::std::string& BrokerPayload::raw_data() const
     ABSL_ATTRIBUTE_LIFETIME_BOUND {
@@ -888,7 +970,7 @@ inline const ::std::string& BrokerPayload::raw_data() const
 template <typename Arg_, typename... Args_>
 PROTOBUF_ALWAYS_INLINE void BrokerPayload::set_raw_data(Arg_&& arg, Args_... args) {
   ::google::protobuf::internal::TSanWrite(&_impl_);
-  _impl_._has_bits_[0] |= 0x00000020u;
+  _impl_._has_bits_[0] |= 0x00000040u;
   _impl_.raw_data_.SetBytes(static_cast<Arg_&&>(arg), args..., GetArena());
   // @@protoc_insertion_point(field_set:broker.BrokerPayload.raw_data)
 }
@@ -904,21 +986,21 @@ inline const ::std::string& BrokerPayload::_internal_raw_data() const {
 }
 inline void BrokerPayload::_internal_set_raw_data(const ::std::string& value) {
   ::google::protobuf::internal::TSanWrite(&_impl_);
-  _impl_._has_bits_[0] |= 0x00000020u;
+  _impl_._has_bits_[0] |= 0x00000040u;
   _impl_.raw_data_.Set(value, GetArena());
 }
 inline ::std::string* PROTOBUF_NONNULL BrokerPayload::_internal_mutable_raw_data() {
   ::google::protobuf::internal::TSanWrite(&_impl_);
-  _impl_._has_bits_[0] |= 0x00000020u;
+  _impl_._has_bits_[0] |= 0x00000040u;
   return _impl_.raw_data_.Mutable( GetArena());
 }
 inline ::std::string* PROTOBUF_NULLABLE BrokerPayload::release_raw_data() {
   ::google::protobuf::internal::TSanWrite(&_impl_);
   // @@protoc_insertion_point(field_release:broker.BrokerPayload.raw_data)
-  if ((_impl_._has_bits_[0] & 0x00000020u) == 0) {
+  if ((_impl_._has_bits_[0] & 0x00000040u) == 0) {
     return nullptr;
   }
-  _impl_._has_bits_[0] &= ~0x00000020u;
+  _impl_._has_bits_[0] &= ~0x00000040u;
   auto* released = _impl_.raw_data_.Release();
   if (::google::protobuf::internal::DebugHardenForceCopyDefaultString()) {
     _impl_.raw_data_.Set("", GetArena());
@@ -928,9 +1010,9 @@ inline ::std::string* PROTOBUF_NULLABLE BrokerPayload::release_raw_data() {
 inline void BrokerPayload::set_allocated_raw_data(::std::string* PROTOBUF_NULLABLE value) {
   ::google::protobuf::internal::TSanWrite(&_impl_);
   if (value != nullptr) {
-    _impl_._has_bits_[0] |= 0x00000020u;
+    _impl_._has_bits_[0] |= 0x00000040u;
   } else {
-    _impl_._has_bits_[0] &= ~0x00000020u;
+    _impl_._has_bits_[0] &= ~0x00000040u;
   }
   _impl_.raw_data_.SetAllocated(value, GetArena());
   if (::google::protobuf::internal::DebugHardenForceCopyDefaultString() && _impl_.raw_data_.IsDefault()) {

@@ -12,7 +12,7 @@
 int main(int argc, char* argv[]) {
   QCoreApplication a(argc, argv);
 
-  GrpcConnectionManager::init();
+  GrpcConnectionManager::init("unix:///tmp/broker.sock");
 
   GrpcConnectionManager::registerCallback<communication::Update>("test", [](const communication::Update& message) {
     qDebug() << QString::fromStdString(message.message());
