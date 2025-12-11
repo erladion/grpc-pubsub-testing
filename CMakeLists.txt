@@ -47,6 +47,29 @@ set(PROTO_GENERATED_HEADERS
 # server/grpcbrokerservice.h
 # server/grpcbrokerservice.cpp
 
+include_directories(common)
+
+
+
+add_library(GrpcLib STATIC
+    ${PROTO_GENERATED_SOURCES}
+    ${PROTO_GENERATED_HEADERS}
+    common/grpcconnectionmanager.cpp
+    common/grpcconnectionmanager.h
+    common/grpcworker.cpp
+    common/grpcworker.h
+    common/protobuf_forward.h
+)
+
+target_include_directories(GrpcLib PRIVATE ${GENERATED_DIR})
+
+target_link_libraries(GrpcLib PUBLIC
+    Qt${QT_VERSION_MAJOR}::Core
+    gRPC::grpc++
+    protobuf::libprotobuf
+)
+
+
 add_executable(server
   server/main.cpp
   common/protobuf_forward.h
@@ -59,6 +82,7 @@ add_executable(server
   server/global_broker.h
   server/global_broker.cpp
   server/safe_logger.h
+  server/server_stats.h
 )
 
 add_executable(client1
@@ -70,7 +94,6 @@ add_executable(client1
   common/protobuf_forward.h
   ${PROTO_GENERATED_SOURCES}
   common/proto/update.proto
-  server/server_stats.h
 )
 
 add_executable(client2
@@ -87,8 +110,6 @@ add_executable(client2
 target_include_directories(client1 PRIVATE ${GENERATED_DIR})
 target_include_directories(client2 PRIVATE ${GENERATED_DIR})
 target_include_directories(server PRIVATE ${GENERATED_DIR})
-
-include_directories(common)
 
 target_link_libraries(server
     Qt${QT_VERSION_MAJOR}::Core
