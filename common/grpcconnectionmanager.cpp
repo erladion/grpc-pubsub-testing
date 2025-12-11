@@ -32,7 +32,7 @@ void GrpcConnectionManager::registerFileCallback(const QString& key, FileCallbac
 }
 
 void GrpcConnectionManager::sendData(const QString& key, const QByteArray& data) {
-  instance().sendData(key, data);
+  instance().sendDataInternal(key, data);
 }
 
 void GrpcConnectionManager::sendFile(const QString& key, const QString& filePath) {
@@ -318,6 +318,7 @@ void GrpcConnectionManager::sendFileInternal(const QString& key, const QString& 
 
   broker::BrokerPayload metaMsg;
   metaMsg.set_handler_key("__FILE_META__");
+  metaMsg.set_sender_id(m_appName);
   metaMsg.set_topic(topic);
   metaMsg.set_transfer_id(transferId);
   metaMsg.set_raw_data(QJsonDocument(meta).toJson(QJsonDocument::Compact).toStdString());
@@ -345,6 +346,7 @@ void GrpcConnectionManager::sendFileInternal(const QString& key, const QString& 
     broker::BrokerPayload msg;
     msg.set_handler_key("__CHUNK__");
     msg.set_topic(topic);
+    msg.set_sender_id(m_appName);
     msg.set_transfer_id(transferId);
     msg.set_sequence_number(sequence++);
     msg.set_sequence_count(totalChunks);
@@ -376,6 +378,7 @@ void GrpcConnectionManager::sendFileInternal(const QString& key, const QString& 
   broker::BrokerPayload footerMsg;
 
   footerMsg.set_handler_key("__FILE_FOOTER__");
+  footerMsg.set_sender_id(m_appName);
   footerMsg.set_topic(key.toStdString());
   footerMsg.set_transfer_id(transferId);
   footerMsg.set_raw_data(finalHash.toStdString());

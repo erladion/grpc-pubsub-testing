@@ -113,8 +113,9 @@ private:
     std::string key = m_incomingMessage.handler_key();
 
     if (!m_handshakeComplete) {
-      if (key == "__SUBSCRIBE__" && !m_incomingMessage.sender_id().empty()) {
+      if (!m_incomingMessage.sender_id().empty()) {
         m_handshakeComplete = true;
+        m_clientId = m_incomingMessage.sender_id();
         Logger::Log("Handshake successful for client: " + m_clientId);
       } else {
         Logger::LogError("Client attempted data transfer before handshake.");
