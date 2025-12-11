@@ -18,6 +18,7 @@ find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Core)
 
 find_package(Protobuf REQUIRED)
 find_package(gRPC CONFIG REQUIRED)
+find_package(absl CONFIG REQUIRED)
 
 set(PROTO_SRC broker.proto)
 set(PROTO_DIR ${CMAKE_CURRENT_SOURCE_DIR}/common)
@@ -49,7 +50,7 @@ set(PROTO_GENERATED_HEADERS
 
 include_directories(common)
 
-
+if (DEFINED BUILD_LIB_ONLY)
 
 add_library(GrpcLib STATIC
     ${PROTO_GENERATED_SOURCES}
@@ -67,8 +68,15 @@ target_link_libraries(GrpcLib PUBLIC
     Qt${QT_VERSION_MAJOR}::Core
     gRPC::grpc++
     protobuf::libprotobuf
+    absl::base
+        absl::strings
+        absl::cord
+        absl::synchronization
+        absl::time
+        absl::flags
+        absl::log
 )
-
+else()
 
 add_executable(server
   server/main.cpp
@@ -138,3 +146,4 @@ install(TARGETS server client1 client2
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
+endif()
