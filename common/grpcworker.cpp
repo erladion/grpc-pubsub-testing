@@ -35,6 +35,13 @@ void GrpcWorker::run() {
   m_stub = broker::BrokerService::NewStub(m_channel);
 
   while (m_running) {
+    if (m_channel->GetState(true) != GRPC_CHANNEL_READY) {
+      for (int i = 0; i < 30 && m_running; ++i) {
+        QThread::msleep(100);
+      }
+      continue;
+    }
+
     auto newContext = std::make_shared<grpc::ClientContext>();
     newContext->set_compression_algorithm(GRPC_COMPRESS_GZIP);
 
@@ -77,6 +84,7 @@ void GrpcWorker::run() {
       }
     }
   }
+
   QMutexLocker lock(&m_streamMutex);
   m_stream.reset();
   m_context.reset();
