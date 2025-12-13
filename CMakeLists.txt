@@ -69,13 +69,22 @@ target_link_libraries(GrpcLib PUBLIC
     gRPC::grpc++
     protobuf::libprotobuf
     absl::base
-        absl::strings
-        absl::cord
-        absl::synchronization
-        absl::time
-        absl::flags
-        absl::log
+    absl::strings
+    absl::cord
+    absl::synchronization
+    absl::time
+    absl::flags
+    absl::log
 )
+
+add_library(GrpcConnectionLib SHARED
+    common/grpcconnectionapi.cpp
+    common/grpcconnectionapi.h
+)
+
+target_link_libraries(GrpcConnectionLib PRIVATE GrpcLib)
+target_link_libraries(GrpcConnectionLib PRIVATE Qt6::Core)
+
 else()
 
 add_executable(server
@@ -102,6 +111,7 @@ add_executable(client1
   common/protobuf_forward.h
   ${PROTO_GENERATED_SOURCES}
   common/proto/update.proto
+  common/grpcconnectionapi.h common/grpcconnectionapi.cpp
 )
 
 add_executable(client2
