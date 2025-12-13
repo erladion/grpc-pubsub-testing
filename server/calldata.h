@@ -56,7 +56,7 @@ public:
     std::lock_guard<std::mutex> lock(m_queueMutex);
 
     if (m_currentQueueBytes > MAX_QUEUE_BYTES) {
-      Logger::LogError("Client" + m_clientId + " is too slow. Dropping message.");
+      Logger::Log(Logger::Type::Error, "Client" + m_clientId + " is too slow. Dropping message.");
 
       m_status = WRITE;
       delete this;
@@ -92,7 +92,7 @@ private:
     new CallData(m_pService, m_pCompletionQueue);
     GlobalBroker::instance().Register(this);
 
-    Logger::Log("New Client Connection Established");
+    Logger::Log(Logger::Type::Info, "New Client Connection Established");
 
     m_status = READ;
     m_stream.Read(&m_incomingMessage, &m_readTag);
@@ -105,7 +105,7 @@ private:
     }
 
     if (!CheckRateLimit()) {
-      Logger::LogError("Rate limit exceeded for " + m_clientId + ". Ignoring message.");
+      Logger::Log(Logger::Type::Error, "Rate limit exceeded for " + m_clientId + ". Ignoring message.");
       m_stream.Read(&m_incomingMessage, &m_readTag);
       return;
     }
@@ -116,9 +116,9 @@ private:
       if (!m_incomingMessage.sender_id().empty()) {
         m_handshakeComplete = true;
         m_clientId = m_incomingMessage.sender_id();
-        Logger::Log("Handshake successful for client: " + m_clientId);
+        Logger::Log(Logger::Type::Info, "Handshake successful for client: " + m_clientId);
       } else {
-        Logger::LogError("Client attempted data transfer before handshake.");
+        Logger::Log(Logger::Type::Error, "Client attempted data transfer before handshake.");
         Cleanup();
         return;
       }
@@ -131,11 +131,11 @@ private:
       std::string topic = m_incomingMessage.topic();
 
       if (topic.empty()) {
-        Logger::LogError("Client " + m_clientId + " sent empty subscription topic");
+        Logger::Log(Logger::Type::Error, "Client " + m_clientId + " sent empty subscription topic");
       } else {
         std::lock_guard<std::mutex> lock(m_subscriptionMutex);
         m_subscriptions.insert(topic);
-        Logger::Log("Client " + m_clientId + " subscribed to: " + topic);
+        Logger::Log(Logger::Type::Info, "Client " + m_clientId + " subscribed to: " + topic);
       }
 
       m_stream.Read(&m_incomingMessage, &m_readTag);

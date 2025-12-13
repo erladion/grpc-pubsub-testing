@@ -7,16 +7,33 @@
 
 class Logger {
 public:
-  static void Log(const std::string& msg) {
+  enum Type { Info, Warning, Error, Fatal };
+
+  static void Log(Type type, const std::string& msg) {
     static std::mutex logMutex;  // Locked for the duration of the print
     std::lock_guard<std::mutex> lock(logMutex);
-    std::cout << msg << std::endl;
+
+    std::cout << "[" << typeToStr(type) << "]" << msg << std::endl;
   }
 
-  static void LogError(const std::string& msg) {
-    static std::mutex logMutex;
-    std::lock_guard<std::mutex> lock(logMutex);
-    std::cerr << "[ERROR] " << msg << std::endl;
+private:
+  static std::string typeToStr(Type type) {
+    std::string typeStr;
+    switch (type) {
+      case Info:
+        typeStr = "INFO";
+        break;
+      case Warning:
+        typeStr = "WARNING";
+        break;
+      case Error:
+        typeStr = "ERROR";
+        break;
+      case Fatal:
+        typeStr = "FATAL";
+        break;
+    }
+    return typeStr;
   }
 };
 

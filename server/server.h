@@ -30,9 +30,9 @@ public:
         unlink(path.c_str());
 
         unixPaths.push_back(path);
-        Logger::Log("Configuring UDS at: " + path);
+        Logger::Log(Logger::Type::Info, "Configuring UDS at: " + path);
       } else {
-        Logger::Log("Configuring TCP at: " + address);
+        Logger::Log(Logger::Type::Info, "Configuring TCP at: " + address);
       }
       builder.AddListeningPort(address, grpc::InsecureServerCredentials());
     }
@@ -52,15 +52,15 @@ public:
     m_server = builder.BuildAndStart();
 
     if (!m_server) {
-      Logger::LogError("Failed to start server! Check ports/permissions.");
+      Logger::Log(Logger::Type::Error, "Failed to start server! Check ports/permissions.");
       return;
     }
 
     for (const auto& path : unixPaths) {
       if (chmod(path.c_str(), 0777) == 0) {
-        Logger::Log("Permissions set to 777 for: " + path);
+        Logger::Log(Logger::Type::Info, "Permissions set to 777 for: " + path);
       } else {
-        Logger::LogError("Failed to set permissions for: " + path + " (Errno: " + std::to_string(errno) + ")");
+        Logger::Log(Logger::Type::Error, "Failed to set permissions for: " + path + " (Errno: " + std::to_string(errno) + ")");
       }
     }
 

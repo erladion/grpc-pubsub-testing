@@ -105,7 +105,7 @@ void GlobalBroker::removePeer(GrpcWorker* peer) {
     m_peers.erase(it);
     peer->stop();
     peer->deleteLater();
-    Logger::Log("Peer disconnected and removed");
+    Logger::Log(Logger::Type::Info, "Peer disconnected and removed");
   }
 }
 
@@ -141,8 +141,8 @@ void GlobalBroker::StatsLoop() {
     const double kbSec = bytesPerSec / 1024.0;
 
     if (messagePerSec > 0 || currentClients > 0) {
-      Logger::Log("[STATS] Clients: " + std::to_string(currentClients) + " | MPS: " + std::to_string(messagePerSec) +
-                  " | Throughput: " + std::to_string(kbSec) + "KB/s");
+      Logger::Log(Logger::Type::Info, "[STATS] Clients: " + std::to_string(currentClients) + " | MPS: " + std::to_string(messagePerSec) +
+                                          " | Throughput: " + std::to_string(kbSec) + "KB/s");
     }
   }
 }
