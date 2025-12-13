@@ -62,7 +62,7 @@ add_library(GrpcLib STATIC
     common/protobuf_forward.h
 )
 
-target_include_directories(GrpcLib PRIVATE ${GENERATED_DIR})
+target_include_directories(GrpcLib PUBLIC ${GENERATED_DIR})
 
 target_link_libraries(GrpcLib PUBLIC
     Qt${QT_VERSION_MAJOR}::Core
