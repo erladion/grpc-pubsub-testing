@@ -4,6 +4,6 @@ package communication;
 
 message Update {
     string id = 1;
-    optional string message = 2;
+    string message = 2;
     int64 timestamp_utc = 3;
 }
