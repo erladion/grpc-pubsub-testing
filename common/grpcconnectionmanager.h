@@ -68,15 +68,23 @@ public:
   template <typename T>
   static bool tryUnpack(const QByteArray& raw, T& outMsg) {
     google::protobuf::Any any;
-    if (!any.ParseFromArray(raw.data(), raw.size())) {
-      return false;
+    if (any.ParseFromArray(raw.data(), raw.size())) {
+      if (any.Is<T>()) {
+        return any.UnpackTo(&outMsg);
+      }
+
+      if (any.type_url().find('/') != std::string::npos) {
+        qDebug() << "Type Mismatch in Any Wrapper. Got:" << any.type_url().c_str();
+        return false;
+      }
     }
 
-    if (!any.Is<T>()) {
-      qDebug() << "Type Mismatch. Expected:" << typeid(T).name();
-      return false;
+    outMsg.Clear();
+    if (outMsg.ParseFromArray(raw.data(), raw.size())) {
+      return true;
     }
-    return any.UnpackTo(&outMsg);
+
+    return false;
   }
 
 private:

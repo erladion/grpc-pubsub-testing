@@ -6,6 +6,8 @@
 #include <QString>
 #include <QTimer>
 
+#include <google/protobuf/any.pb.h>
+
 // Internal Qt Application Instance
 static QCoreApplication* g_app = nullptr;
 static int g_argc = 1;
@@ -18,7 +20,14 @@ static void ensure_qt() {
   }
 }
 
-void initConnection(const char* address) {
+void initConnection(const char* address, const char* clientId) {
+  if (clientId && *clientId != '\0') {
+    // We need a static string storage to ensure the char* remains valid
+    // for the lifetime of QCoreApplication
+    static std::string clientName = clientId;
+    g_argv[0] = const_cast<char*>(clientName.data());
+  }
+
   ensure_qt();
   GrpcConnectionManager::init(QString::fromUtf8(address));
 }
@@ -43,23 +52,33 @@ void sendFile(const char* topic, const char* filepath) {
   GrpcConnectionManager::sendFile(QString::fromUtf8(topic), QString::fromUtf8(filepath));
 }
 
-void registerCallback(const char* topic, GrpcMessageCallback cb, void* user_data) {
+void registerCallback(const char* topic, GrpcMessageCallback callBack, void* userData) {
   QString qTopic = QString::fromUtf8(topic);
 
-  // We capture the C function pointer 'cb' and 'user_data' in the C++ lambda
-  GrpcConnectionManager::registerCallback(qTopic, [cb, user_data, qTopic](const QByteArray& data) {
-    if (cb) {
-      cb(qTopic.toUtf8().constData(), data.constData(), data.size(), user_data);
+  GrpcConnectionManager::registerCallback(qTopic, [callBack, userData, qTopic](const QByteArray& data) {
+    if (!callBack)
+      return;
+
+    google::protobuf::Any anyMsg;
+
+    const bool parsed = anyMsg.ParseFromArray(data.constData(), data.size());
+    if (parsed && !anyMsg.type_url().empty() && anyMsg.type_url().find('/') != std::string::npos) {
+      std::string inner_payload = anyMsg.value();
+
+      callBack(qTopic.toUtf8().constData(), inner_payload.data(), static_cast<int>(inner_payload.size()), userData);
+
+    } else {
+      callBack(qTopic.toUtf8().constData(), data.constData(), data.size(), userData);
     }
   });
 }
 
-void registerFileCallback(const char* topic, GrpcFileCallback cb, void* user_data) {
+void registerFileCallback(const char* topic, GrpcFileCallback callback, void* userData) {
   QString qTopic = QString::fromUtf8(topic);
 
-  GrpcConnectionManager::registerFileCallback(qTopic, [cb, user_data, qTopic](const QString& path) {
-    if (cb) {
-      cb(qTopic.toUtf8().constData(), path.toUtf8().constData(), user_data);
+  GrpcConnectionManager::registerFileCallback(qTopic, [callback, userData, qTopic](const QString& path) {
+    if (callback) {
+      callback(qTopic.toUtf8().constData(), path.toUtf8().constData(), userData);
     }
   });
 }
