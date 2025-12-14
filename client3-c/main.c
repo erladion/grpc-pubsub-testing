@@ -7,10 +7,12 @@
 #include "update.pb-c.h"
 
 void on_message(const char* topic, const char* data, int len, void* ctx) {
-  // 1. Verify Topic
-  if (strcmp(topic, "test") != 0) return;
+  // Verify Topic
+  if (strcmp(topic, "test") != 0) {
+    return;
+  }
 
-  // 2. Deserialize (Unpack)
+  // Deserialize
   Communication__Update *msg = communication__update__unpack(NULL, len, (const uint8_t*)data);
 
   if (msg == NULL) {
@@ -42,7 +44,7 @@ void on_message(const char* topic, const char* data, int len, void* ctx) {
 
 int main() {
   // Connect
-  initConnection("127.0.0.1:50051");
+  initConnection("127.0.0.1:50051", "c-client");
 
   // Subscribe
   registerCallback("test", on_message, NULL);
