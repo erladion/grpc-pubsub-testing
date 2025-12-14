@@ -5,7 +5,6 @@
 extern "C" {
 #endif
 
-// Export macros for Windows/Linux compatibility
 #if defined(_WIN32)
 #ifdef BUILDING_GRPC_DLL
 #define GRPC_API __declspec(dllexport)
@@ -16,40 +15,44 @@ extern "C" {
 #define GRPC_API
 #endif
 
-// --- TYPES ---
+typedef enum {
+  GRPC_SUCCESS = 0,
+  GRPC_ERROR_GENERIC = -1,
+  GRPC_ERROR_NO_CONNECTION = -2,
+  GRPC_ERROR_INVALID_ARGS = -3,
+  GRPC_ERROR_SEND_FAILED = -4
+} GrpcErrorCode;
 
-// Callback function pointer signature
-// topic: The topic the message arrived on
-// data:  Pointer to raw bytes
-// len:   Length of data
-// user_data: Custom pointer passed during registration (context)
+typedef enum { GRPC_STATUS_DISCONNECTED = 0, GRPC_STATUS_CONNECTING = 1, GRPC_STATUS_CONNECTED = 2 } GrpcConnectionStatus;
+
+typedef struct {
+  const char* address;       // e.g. "127.0.0.1:50051"
+  const char* client_id;     // NEW: e.g. "Camera-1" (Identifying Name)
+  int keepalive_time_ms;     // Default: 10000
+  int keepalive_timeout_ms;  // Default: 5000
+} GrpcConfig;
+
 typedef void (*GrpcMessageCallback)(const char* topic, const char* data, int len, void* user_data);
-
-// File callback signature
 typedef void (*GrpcFileCallback)(const char* topic, const char* filepath, void* user_data);
+typedef void (*GrpcStatusCallback)(GrpcConnectionStatus status, void* user_data);
 
-// Initialize the library (starts Qt Core internally)
-// address: "127.0.0.1:50051" or "unix:///tmp/broker.sock"
-GRPC_API void initConnection(const char *address, const char *clientId);
+GRPC_API int initConnection(const GrpcConfig* config);
 
-// Drive the internal event loop.
-// MUST be called periodically (e.g., inside a while(1) loop) in the C app.
+GRPC_API void shutdownConnection();
+
 GRPC_API void processEvents();
 
-// Send raw bytes
-GRPC_API void sendData(const char* topic, const char* data, int len);
+GRPC_API void registerStatusCallback(GrpcStatusCallback cb, void* user_data);
 
-// Send a string (convenience wrapper)
-GRPC_API void sendText(const char* topic, const char* text);
+GRPC_API int sendData(const char* topic, const char* data, int len);
 
-// Stream a file from disk
-GRPC_API void sendFile(const char* topic, const char* filepath);
+GRPC_API int sendText(const char* topic, const char* text);
 
-// Register a callback for raw messages
-GRPC_API void registerCallback(const char *topic, GrpcMessageCallback callBack, void *userData);
+GRPC_API int sendFile(const char* topic, const char* filepath);
 
-// Register a callback for file downloads
-GRPC_API void registerFileCallback(const char *topic, GrpcFileCallback callback, void *userData);
+GRPC_API void registerCallback(const char* topic, GrpcMessageCallback cb, void* user_data);
+
+GRPC_API void registerFileCallback(const char* topic, GrpcFileCallback cb, void* user_data);
 
 #ifdef __cplusplus
 }

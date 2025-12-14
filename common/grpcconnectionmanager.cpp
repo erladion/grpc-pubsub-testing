@@ -4,15 +4,14 @@
 #include <QDateTime>
 #include <QDebug>
 #include <QDir>
-#include <QFile>
 #include <QFileInfo>
-#include <QFuture>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QStandardPaths>
 #include <QUuid>
 #include <QtConcurrent/QtConcurrent>
 
 GrpcConnectionManager* GrpcConnectionManager::m_pInstance = nullptr;
-
 static const int STREAM_CHUNK_SIZE = 64 * 1024;
 
 void GrpcConnectionManager::init(const QString& address) {
@@ -23,27 +22,39 @@ void GrpcConnectionManager::init(const QString& address) {
   m_pInstance = new GrpcConnectionManager(address);
 }
 
-void GrpcConnectionManager::registerCallback(const QString& key, MessageCallback callback) {
-  instance().registerInternal(key, callback);
-}
-
-void GrpcConnectionManager::registerFileCallback(const QString& key, FileCallback callback) {
-  instance().registerFileInternal(key, callback);
-}
-
-void GrpcConnectionManager::sendData(const QString& key, const QByteArray& data) {
-  instance().sendDataInternal(key, data);
-}
-
-void GrpcConnectionManager::sendFile(const QString& key, const QString& filePath) {
-  QFuture future = QtConcurrent::run([key, filePath]() { instance().sendFileInternal(key, filePath); });
+void GrpcConnectionManager::shutdown() {
+  if (m_pInstance) {
+    delete m_pInstance;
+    m_pInstance = nullptr;
+  }
 }
 
 GrpcConnectionManager& GrpcConnectionManager::instance() {
-  if (!m_pInstance) {
-    qFatal("GrpcConnectionManager::init() must be called before using static methods!");
-  }
+  if (!m_pInstance)
+    qFatal("GrpcConnectionManager not initialized!");
   return *m_pInstance;
+}
+
+void GrpcConnectionManager::registerStatusCallback(StatusCallback callback) {
+  QMutexLocker lock(&instance().m_mapMutex);
+  instance().m_statusCallbacks.append(callback);
+  bool connected = instance().m_isConnected;
+  callback(connected);
+}
+
+bool GrpcConnectionManager::sendData(const QString& key, const QByteArray& data) {
+  return instance().sendDataInternal(key, data);
+}
+
+bool GrpcConnectionManager::sendFile(const QString& key, const QString& filePath) {
+  return instance().sendFileInternal(key, filePath);
+}
+
+void GrpcConnectionManager::registerCallback(const QString& key, MessageCallback callback) {
+  instance().registerInternal(key, callback);
+}
+void GrpcConnectionManager::registerFileCallback(const QString& key, FileCallback callback) {
+  instance().registerFileInternal(key, callback);
 }
 
 GrpcConnectionManager::GrpcConnectionManager(const QString& address) : m_pWorker(nullptr), m_isConnected(false) {
@@ -52,23 +63,152 @@ GrpcConnectionManager::GrpcConnectionManager(const QString& address) : m_pWorker
   }
 
   m_appName = QCoreApplication::applicationName().toStdString();
-
   if (m_appName.empty()) {
     m_appName = "UnknownApp";
   }
 
-  qDebug() << "Initialized GrpcManager for Client ID:" << m_appName;
-
   m_pWorker = new GrpcWorker(address, nullptr);
 
   connect(m_pWorker, &GrpcWorker::envelopeReceived, this, &GrpcConnectionManager::onEnvelopeReceived, Qt::QueuedConnection);
-
   connect(m_pWorker, &GrpcWorker::connected, this, &GrpcConnectionManager::onWorkerConnected, Qt::QueuedConnection);
   connect(m_pWorker, &GrpcWorker::disconnected, this, &GrpcConnectionManager::onWorkerDisconnected, Qt::QueuedConnection);
+
   m_pWorker->start();
 
-  connect(&m_cleanupTimer, &QTimer::timeout, this, &GrpcConnectionManager::onCleanupTimer);
-  m_cleanupTimer.start(10000);
+  m_cleanupTimer = new QTimer(this);
+  connect(m_cleanupTimer, &QTimer::timeout, this, &GrpcConnectionManager::onCleanupTimer);
+  m_cleanupTimer->start(10000);
+}
+
+GrpcConnectionManager::~GrpcConnectionManager() {
+  if (m_pWorker) {
+    m_pWorker->stop();
+    delete m_pWorker;
+  }
+}
+
+bool GrpcConnectionManager::sendDataInternal(const QString& key, const QByteArray& data) {
+  if (!m_isConnected)
+    return false;
+
+  broker::BrokerPayload msg;
+  msg.set_handler_key(key.toStdString());
+  msg.set_sender_id(m_appName);
+  msg.set_topic(key.toStdString());
+  msg.set_raw_data(data.toStdString());
+
+  return sendRawEnvelope(msg);
+}
+
+bool GrpcConnectionManager::sendFileInternal(const QString& key, const QString& filePath) {
+  if (!m_isConnected)
+    return false;
+
+  // Async launch - we return 'true' meaning "Request Accepted"
+  QFileInfo check(filePath);
+  if (!check.exists() || !check.isReadable())
+    return false;
+
+  QtConcurrent::run([this, key, filePath]() {
+    QFile file(filePath);
+    if (!file.open(QIODevice::ReadOnly))
+      return;
+
+    QFileInfo fileInfo(filePath);
+    qint64 totalSize = file.size();
+    std::string transferId = QUuid::createUuid().toString().toStdString();
+    std::string stdTopic = key.toStdString();
+
+    // Calculate Hash
+    QCryptographicHash hasher(QCryptographicHash::Sha256);
+
+    // Metadata
+    QJsonObject meta;
+    meta["filename"] = fileInfo.fileName();
+    meta["size"] = totalSize;
+    meta["transfer_id"] = QString::fromStdString(transferId);
+
+    broker::BrokerPayload metaMsg;
+    metaMsg.set_handler_key("__FILE_META__");
+    metaMsg.set_sender_id(m_appName);
+    metaMsg.set_topic(stdTopic);
+    metaMsg.set_transfer_id(transferId);
+    metaMsg.set_raw_data(QJsonDocument(meta).toJson(QJsonDocument::Compact).toStdString());
+
+    if (!sendRawEnvelope(metaMsg))
+      return;
+
+    // Stream
+    int totalChunks = (totalSize + STREAM_CHUNK_SIZE - 1) / STREAM_CHUNK_SIZE;
+    int sequence = 0;
+
+    while (!file.atEnd()) {
+      QByteArray chunkData = file.read(STREAM_CHUNK_SIZE);
+      hasher.addData(chunkData);
+
+      broker::BrokerPayload msg;
+      msg.set_handler_key("__CHUNK__");
+      msg.set_sender_id(m_appName);
+      msg.set_topic(stdTopic);
+      msg.set_transfer_id(transferId);
+      msg.set_sequence_number(sequence++);
+      msg.set_sequence_count(totalChunks);
+      msg.set_raw_data(chunkData.constData(), chunkData.size());
+
+      if (!sendRawEnvelope(msg)) {
+        QThread::msleep(100);
+        if (!sendRawEnvelope(msg))
+          break;  // Give up
+      }
+
+      if (sequence % 16 == 0)
+        QThread::msleep(1);
+    }
+    file.close();
+
+    QByteArray finalHash = hasher.result();
+    broker::BrokerPayload footerMsg;
+    footerMsg.set_handler_key("__FILE_FOOTER__");
+    footerMsg.set_sender_id(m_appName);
+    footerMsg.set_topic(stdTopic);
+    footerMsg.set_transfer_id(transferId);
+    footerMsg.set_raw_data(finalHash.toStdString());
+
+    sendRawEnvelope(footerMsg);
+  });
+
+  return true;
+}
+
+bool GrpcConnectionManager::sendRawEnvelope(const broker::BrokerPayload& envelope) {
+  if (m_pWorker) {
+    return m_pWorker->writeMessage(envelope);
+  }
+  return false;
+}
+
+void GrpcConnectionManager::registerInternal(const QString& key, MessageCallback callback) {
+  QMutexLocker lock(&m_mapMutex);
+  m_byteHandlers.insert(key, callback);
+  if (m_isConnected) {
+    broker::BrokerPayload subMsg;
+    subMsg.set_handler_key("__SUBSCRIBE__");
+    subMsg.set_sender_id(m_appName);
+    subMsg.set_topic(key.toStdString());
+    sendRawEnvelope(subMsg);
+  }
+}
+
+void GrpcConnectionManager::registerFileInternal(const QString& key, FileCallback callback) {
+  QMutexLocker lock(&m_mapMutex);
+  m_fileHandlers.insert(key, callback);
+  if (m_isConnected) {
+    broker::BrokerPayload subMsg;
+    subMsg.set_handler_key("__SUBSCRIBE__");
+    subMsg.set_sender_id(m_appName);
+    subMsg.set_topic(key.toStdString());
+    sendRawEnvelope(subMsg);
+  }
 }
 
 void GrpcConnectionManager::onEnvelopeReceived(const broker::BrokerPayload& msg) {
@@ -89,7 +229,7 @@ void GrpcConnectionManager::onEnvelopeReceived(const broker::BrokerPayload& msg)
 
     QString tempDir = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
     QString safeId = transferId;
-    safeId.replace("{", "").replace("}", "").replace("-", "");
+    safeId.replace("{", "").replace("}", "");
     newItem.tempFilePath = tempDir + "/grpc_" + safeId + ".dat";
     newItem.tempFile = new QFile(newItem.tempFilePath);
     if (!newItem.tempFile->open(QIODevice::ReadWrite)) {
@@ -100,16 +240,14 @@ void GrpcConnectionManager::onEnvelopeReceived(const broker::BrokerPayload& msg)
 
     newItem.hasher = new QCryptographicHash(QCryptographicHash::Sha256);
     m_incomingTransfers.insert(transferId, newItem);
-    qDebug() << "Incoming File Transfer Started:" << newItem.intendedFilename;
+    qDebug() << "Incoming Transfer Started:" << newItem.intendedFilename;
     return;
   }
 
   if (handlerKey == "__CHUNK__") {
     QMutexLocker lock(&m_mapMutex);
-
-    if (!m_incomingTransfers.contains(transferId)) {
+    if (!m_incomingTransfers.contains(transferId))
       return;
-    }
 
     IncomingTransfer& transfer = m_incomingTransfers[transferId];
     transfer.lastUpdateTimestamp = QDateTime::currentMSecsSinceEpoch();
@@ -120,21 +258,9 @@ void GrpcConnectionManager::onEnvelopeReceived(const broker::BrokerPayload& msg)
 
     if (transfer.tempFile && transfer.tempFile->isOpen()) {
       transfer.tempFile->seek(offset);
-      qint64 bytesWritten = transfer.tempFile->write(chunkData);
-
-      if (bytesWritten != chunkData.size()) {
-        qCritical() << "Disk full! Write failed for:" << transfer.intendedFilename;
-
-        transfer.tempFile->close();
-        QFile::remove(transfer.tempFilePath);
-        m_incomingTransfers.remove(transferId);
-        return;
-      }
-
-      if (transfer.hasher) {
+      transfer.tempFile->write(chunkData);
+      if (transfer.hasher)
         transfer.hasher->addData(chunkData);
-      }
-
       transfer.receivedChunks++;
     }
     return;
@@ -147,7 +273,6 @@ void GrpcConnectionManager::onEnvelopeReceived(const broker::BrokerPayload& msg)
     }
 
     IncomingTransfer& transfer = m_incomingTransfers[transferId];
-
     QByteArray senderHash = QByteArray::fromStdString(msg.raw_data());
     QByteArray localHash = transfer.hasher->result();
 
@@ -161,7 +286,7 @@ void GrpcConnectionManager::onEnvelopeReceived(const broker::BrokerPayload& msg)
       qCritical() << "File corruption! Checksum mismatch.";
       QFile::remove(transfer.tempFilePath);
     } else {
-      qDebug() << "File Download Verified:" << transfer.intendedFilename;
+      qDebug() << "Integrity Verified. Finalizing:" << transfer.intendedFilename;
 
       QString downDir = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
       QString finalPath = downDir + "/" + transfer.intendedFilename;
@@ -170,7 +295,6 @@ void GrpcConnectionManager::onEnvelopeReceived(const broker::BrokerPayload& msg)
       while (QFile::exists(finalPath)) {
         QString base = QFileInfo(transfer.intendedFilename).baseName();
         QString ext = QFileInfo(transfer.intendedFilename).completeSuffix();
-
         finalPath = downDir + "/" + base + "_" + QString::number(counter++) + "." + ext;
       }
 
@@ -178,228 +302,50 @@ void GrpcConnectionManager::onEnvelopeReceived(const broker::BrokerPayload& msg)
         QString topic = transfer.originalTopic;
         m_incomingTransfers.remove(transferId);
         lock.unlock();
-
         processFilePayload(topic, finalPath);
       } else {
-        qCritical() << "Failed to rename/move temp file to " << finalPath;
+        qCritical() << "Failed to rename/move temp file.";
       }
     }
     return;
   }
 
-  QByteArray finalData;
+  QByteArray data;
   if (msg.has_payload()) {
-    std::string serialized;
-    msg.payload().SerializeToString(&serialized);
-    finalData = QByteArray::fromStdString(serialized);
+    std::string s;
+    msg.payload().SerializeToString(&s);
+    data = QByteArray::fromStdString(s);
   } else {
-    finalData = QByteArray::fromStdString(msg.raw_data());
+    data = QByteArray::fromStdString(msg.raw_data());
   }
-  processPayload(handlerKey, finalData);
+  processPayload(handlerKey, data);
 }
 
 void GrpcConnectionManager::processPayload(const QString& key, const QByteArray& data) {
   QMutexLocker lock(&m_mapMutex);
-  if (m_handlers.contains(key)) {
-    m_handlers[key](data);
+  if (m_byteHandlers.contains(key)) {
+    m_byteHandlers[key](data);
   }
 }
 
 void GrpcConnectionManager::processFilePayload(const QString& key, const QString& filePath) {
   QMutexLocker lock(&m_mapMutex);
-
   if (m_fileHandlers.contains(key)) {
     m_fileHandlers[key](filePath);
-    // Note: We do NOT delete the file here. The user owns it now.
-  } else if (m_handlers.contains(key)) {
-    QFile f(filePath);
-    if (f.open(QIODevice::ReadOnly)) {
-      m_handlers[key](f.readAll());  // Load entire file into RAM
-      f.close();
-    }
-    QFile::remove(filePath);
-  } else {
-    qWarning() << "No handler registered for file topic:" << key << "Deleting temp file.";
-    QFile::remove(filePath);
   }
-}
-
-GrpcConnectionManager::~GrpcConnectionManager() {
-  if (m_pWorker) {
-    m_pWorker->stop();
-    delete m_pWorker;
-  }
-}
-
-void GrpcConnectionManager::registerInternal(const QString& key, MessageCallback callback) {
-  QMutexLocker lock(&m_mapMutex);
-  m_handlers.insert(key, callback);
-
-  if (m_isConnected) {
-    broker::BrokerPayload subMsg;
-    subMsg.set_handler_key("__SUBSCRIBE__");
-    subMsg.set_sender_id(m_appName);
-    subMsg.set_topic(key.toStdString());
-    sendRawEnvelope(subMsg);
-
-    qDebug() << "Runtime Subscription sent for:" << key;
-  }
-}
-
-void GrpcConnectionManager::registerFileInternal(const QString& key, FileCallback callback) {
-  QMutexLocker lock(&m_mapMutex);
-  m_fileHandlers.insert(key, callback);
-
-  if (m_isConnected) {
-    broker::BrokerPayload subMsg;
-    subMsg.set_handler_key("__SUBSCRIBE__");
-    subMsg.set_sender_id(m_appName);
-    subMsg.set_topic(key.toStdString());
-    sendRawEnvelope(subMsg);
-  }
-}
-
-void GrpcConnectionManager::sendDataInternal(const QString& key, const QByteArray& data) {
-  int totalSize = data.size();
-
-  if (totalSize <= STREAM_CHUNK_SIZE) {
-    broker::BrokerPayload msg;
-    msg.set_handler_key(key.toStdString());
-    msg.set_sender_id(m_appName);
-    msg.set_topic(key.toStdString());
-    msg.set_raw_data(data.toStdString());
-    sendRawEnvelope(msg);
-    return;
-  }
-
-  const int totalChunks = (totalSize + STREAM_CHUNK_SIZE - 1) / STREAM_CHUNK_SIZE;
-  const std::string transferId = QUuid::createUuid().toString().toStdString();
-
-  qDebug() << "Sending large data:" << key << "| Size:" << totalSize << "| Chunks:" << totalChunks;
-
-  for (int i(0); i < totalChunks; ++i) {
-    broker::BrokerPayload msg;
-    msg.set_handler_key("__CHUNK__");
-    msg.set_topic(key.toStdString());
-    msg.set_transfer_id(transferId);
-    msg.set_sequence_number(i);
-    msg.set_sequence_count(totalChunks);
-
-    const int start = i * STREAM_CHUNK_SIZE;
-    const int len = std::min(STREAM_CHUNK_SIZE, totalSize - start);
-
-    msg.set_raw_data(data.mid(start, len).toStdString());
-    sendRawEnvelope(msg);
-  }
-}
-
-void GrpcConnectionManager::sendFileInternal(const QString& key, const QString& filePath) {
-  if (!m_isConnected) {
-    qWarning() << "Cannot stream file: No connection to broker.";
-    return;
-  }
-
-  QFile file(filePath);
-  if (!file.open(QIODevice::ReadOnly)) {
-    qWarning() << "Failed to open file for streaming:" << filePath;
-    return;
-  }
-
-  QFileInfo fileInfo(filePath);
-  QString uuid = QUuid::createUuid().toString();
-  std::string transferId = uuid.toStdString();
-  std::string topic = key.toStdString();
-  qint64 totalSize = file.size();
-
-  QJsonObject meta;
-  meta["filename"] = fileInfo.fileName();
-  meta["size"] = totalSize;
-  meta["transfer_id"] = uuid;
-
-  broker::BrokerPayload metaMsg;
-  metaMsg.set_handler_key("__FILE_META__");
-  metaMsg.set_sender_id(m_appName);
-  metaMsg.set_topic(topic);
-  metaMsg.set_transfer_id(transferId);
-  metaMsg.set_raw_data(QJsonDocument(meta).toJson(QJsonDocument::Compact).toStdString());
-
-  if (!sendRawEnvelope(metaMsg)) {
-    return;
-  }
-
-  int totalChunks = (totalSize + STREAM_CHUNK_SIZE - 1) / STREAM_CHUNK_SIZE;
-  int sequence = 0;
-
-  qDebug() << "Starting upload:" << filePath;
-
-  QCryptographicHash hasher(QCryptographicHash::Sha256);
-
-  while (!file.atEnd()) {
-    QByteArray chunkData = file.read(STREAM_CHUNK_SIZE);
-    if (chunkData.isEmpty() && !file.atEnd()) {
-      qCritical() << "File read error! Aborting transfer";
-      break;
-    }
-
-    hasher.addData(chunkData);
-
-    broker::BrokerPayload msg;
-    msg.set_handler_key("__CHUNK__");
-    msg.set_topic(topic);
-    msg.set_sender_id(m_appName);
-    msg.set_transfer_id(transferId);
-    msg.set_sequence_number(sequence++);
-    msg.set_sequence_count(totalChunks);
-    msg.set_raw_data(chunkData.constData(), chunkData.size());
-
-    int retries = 0;
-    bool success = false;
-    while (retries < 5) {
-      if (sendRawEnvelope(msg)) {
-        success = true;
-        break;
-      }
-      QThread::msleep(500);
-      retries++;
-    }
-
-    if (!success) {
-      qCritical() << "Upload failed. Connection lost.";
-      break;
-    }
-
-    if (sequence & 16 == 0) {
-      QThread::msleep(1);
-    }
-  }
-  file.close();
-
-  QByteArray finalHash = hasher.result();
-  broker::BrokerPayload footerMsg;
-
-  footerMsg.set_handler_key("__FILE_FOOTER__");
-  footerMsg.set_sender_id(m_appName);
-  footerMsg.set_topic(key.toStdString());
-  footerMsg.set_transfer_id(transferId);
-  footerMsg.set_raw_data(finalHash.toStdString());
-  sendRawEnvelope(footerMsg);
-}
-
-bool GrpcConnectionManager::sendRawEnvelope(const broker::BrokerPayload& envelope) {
-  if (!m_pWorker) {
-    return false;
-  }
-  return m_pWorker->writeMessage(envelope);
 }
 
 void GrpcConnectionManager::onWorkerConnected() {
   QMutexLocker lock(&m_mapMutex);
   m_isConnected = true;
 
-  qDebug() << "Broker connection established. Resubscribing to" << m_handlers.size() << "topics.";
+  for (auto& cb : m_statusCallbacks) {
+    cb(true);
+  }
 
-  QStringList allTopics = m_handlers.keys() + m_fileHandlers.keys();
-
+  // Resubscribe
+  QStringList allTopics = m_byteHandlers.keys() + m_fileHandlers.keys();
+  allTopics.removeDuplicates();
   for (const QString& topic : allTopics) {
     broker::BrokerPayload subMsg;
     subMsg.set_handler_key("__SUBSCRIBE__");
@@ -412,19 +358,19 @@ void GrpcConnectionManager::onWorkerConnected() {
 void GrpcConnectionManager::onWorkerDisconnected() {
   QMutexLocker lock(&m_mapMutex);
   m_isConnected = false;
+
+  for (auto& cb : m_statusCallbacks) {
+    cb(false);
+  }
 }
 
 void GrpcConnectionManager::onCleanupTimer() {
   QMutexLocker lock(&m_mapMutex);
-
   qint64 now = QDateTime::currentMSecsSinceEpoch();
-  static const qint64 timeoutLimit = 30000;  // 30 secs
-
   auto it = m_incomingTransfers.begin();
   while (it != m_incomingTransfers.end()) {
-    if (now - it.value().lastUpdateTimestamp > timeoutLimit) {
-      qWarning() << "Transfer timed out. Cleaning up:" << it.key();
-
+    if (now - it.value().lastUpdateTimestamp > 30000) {
+      qWarning() << "Transfer Timed Out. Deleting:" << it.value().intendedFilename;
       if (it.value().tempFile) {
         it.value().tempFile->close();
         delete it.value().tempFile;

@@ -4,32 +4,34 @@
 #include <QByteArray>
 #include <QCoreApplication>
 #include <QString>
-#include <QTimer>
 
-#include <google/protobuf/any.pb.h>
-
-// Internal Qt Application Instance
 static QCoreApplication* g_app = nullptr;
 static int g_argc = 1;
 static char* g_argv[] = {(char*)"GrpcCWrapper", nullptr};
 
-// Ensure Qt is running
 static void ensure_qt() {
   if (!QCoreApplication::instance()) {
     g_app = new QCoreApplication(g_argc, g_argv);
   }
 }
 
-void initConnection(const char* address, const char* clientId) {
-  if (clientId && *clientId != '\0') {
-    // We need a static string storage to ensure the char* remains valid
-    // for the lifetime of QCoreApplication
-    static std::string clientName = clientId;
-    g_argv[0] = const_cast<char*>(clientName.data());
+int initConnection(const GrpcConfig* config) {
+  if (!config || !config->address)
+    return GRPC_ERROR_INVALID_ARGS;
+  ensure_qt();
+
+  if (config->client_id && config->client_id[0] != '\0') {
+    QCoreApplication::setApplicationName(QString::fromUtf8(config->client_id));
+  } else {
+    QCoreApplication::setApplicationName("UnknownCClient");
   }
 
-  ensure_qt();
-  GrpcConnectionManager::init(QString::fromUtf8(address));
+  GrpcConnectionManager::init(QString::fromUtf8(config->address));
+  return GRPC_SUCCESS;
+}
+
+void shutdownConnection() {
+  GrpcConnectionManager::shutdown();
 }
 
 void processEvents() {
@@ -38,47 +40,51 @@ void processEvents() {
   }
 }
 
-void sendData(const char* topic, const char* data, int len) {
-  QByteArray bytes(data, len);
-  GrpcConnectionManager::sendData(QString::fromUtf8(topic), bytes);
-}
-
-void sendText(const char* topic, const char* text) {
-  QByteArray bytes(text);
-  GrpcConnectionManager::sendData(QString::fromUtf8(topic), bytes);
-}
-
-void sendFile(const char* topic, const char* filepath) {
-  GrpcConnectionManager::sendFile(QString::fromUtf8(topic), QString::fromUtf8(filepath));
-}
-
-void registerCallback(const char* topic, GrpcMessageCallback callBack, void* userData) {
-  QString qTopic = QString::fromUtf8(topic);
-
-  GrpcConnectionManager::registerCallback(qTopic, [callBack, userData, qTopic](const QByteArray& data) {
-    if (!callBack)
-      return;
-
-    google::protobuf::Any anyMsg;
-
-    const bool parsed = anyMsg.ParseFromArray(data.constData(), data.size());
-    if (parsed && !anyMsg.type_url().empty() && anyMsg.type_url().find('/') != std::string::npos) {
-      std::string inner_payload = anyMsg.value();
-
-      callBack(qTopic.toUtf8().constData(), inner_payload.data(), static_cast<int>(inner_payload.size()), userData);
-
-    } else {
-      callBack(qTopic.toUtf8().constData(), data.constData(), data.size(), userData);
+void registerStatusCallback(GrpcStatusCallback cb, void* user_data) {
+  GrpcConnectionManager::registerStatusCallback([cb, user_data](bool connected) {
+    if (cb) {
+      cb(connected ? GRPC_STATUS_CONNECTED : GRPC_STATUS_DISCONNECTED, user_data);
     }
   });
 }
 
-void registerFileCallback(const char* topic, GrpcFileCallback callback, void* userData) {
-  QString qTopic = QString::fromUtf8(topic);
+int sendData(const char* topic, const char* data, int len) {
+  if (!topic || !data)
+    return GRPC_ERROR_INVALID_ARGS;
+  QByteArray bytes(data, len);
+  bool res = GrpcConnectionManager::sendData(QString::fromUtf8(topic), bytes);
+  return res ? GRPC_SUCCESS : GRPC_ERROR_NO_CONNECTION;
+}
 
-  GrpcConnectionManager::registerFileCallback(qTopic, [callback, userData, qTopic](const QString& path) {
-    if (callback) {
-      callback(qTopic.toUtf8().constData(), path.toUtf8().constData(), userData);
+int sendText(const char* topic, const char* text) {
+  if (!topic || !text)
+    return GRPC_ERROR_INVALID_ARGS;
+  QByteArray bytes(text);
+  bool res = GrpcConnectionManager::sendData(QString::fromUtf8(topic), bytes);
+  return res ? GRPC_SUCCESS : GRPC_ERROR_NO_CONNECTION;
+}
+
+int sendFile(const char* topic, const char* filepath) {
+  if (!topic || !filepath)
+    return GRPC_ERROR_INVALID_ARGS;
+  bool res = GrpcConnectionManager::sendFile(QString::fromUtf8(topic), QString::fromUtf8(filepath));
+  return res ? GRPC_SUCCESS : GRPC_ERROR_NO_CONNECTION;
+}
+
+void registerCallback(const char* topic, GrpcMessageCallback cb, void* user_data) {
+  QString qTopic = QString::fromUtf8(topic);
+  GrpcConnectionManager::registerCallback(qTopic, [cb, user_data, qTopic](const QByteArray& data) {
+    if (cb) {
+      cb(qTopic.toUtf8().constData(), data.constData(), data.size(), user_data);
+    }
+  });
+}
+
+void registerFileCallback(const char* topic, GrpcFileCallback cb, void* user_data) {
+  QString qTopic = QString::fromUtf8(topic);
+  GrpcConnectionManager::registerFileCallback(qTopic, [cb, user_data, qTopic](const QString& path) {
+    if (cb) {
+      cb(qTopic.toUtf8().constData(), path.toUtf8().constData(), user_data);
     }
   });
 }

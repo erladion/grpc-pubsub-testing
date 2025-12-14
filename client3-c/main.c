@@ -44,7 +44,10 @@ void on_message(const char* topic, const char* data, int len, void* ctx) {
 
 int main() {
   // Connect
-  initConnection("127.0.0.1:50051", "c-client");
+  GrpcConfig config;
+  config.address = "127.0.0.1:50051";
+  config.client_id = "c-client";
+  initConnection(&config);
 
   // Subscribe
   registerCallback("test", on_message, NULL);

@@ -1,36 +1,33 @@
 #pragma once
+
 #include <QByteArray>
-#include <QCoreApplication>
+#include <QCryptographicHash>
 #include <QDebug>
 #include <QFile>
+#include <QHash>
 #include <QMap>
 #include <QMutex>
 #include <QObject>
 #include <QTimer>
-
-#include <QCryptographicHash>
-#include <QJsonDocument>
-#include <QJsonObject>
-
+#include <QtConcurrent/QtConcurrent>
 #include <functional>
+
+#include <google/protobuf/any.h>
 
 #include "grpcworker.h"
 #include "protobuf_forward.h"
 
 using MessageCallback = std::function<void(const QByteArray&)>;
-
 using FileCallback = std::function<void(const QString&)>;
+using StatusCallback = std::function<void(bool)>;  // True = Connected, False = Disconnected
 
 struct IncomingTransfer {
   QString originalTopic;
   QString intendedFilename;
-
   int totalChunks = 0;
   int receivedChunks = 0;
-
   QFile* tempFile = nullptr;
   QString tempFilePath;
-
   QCryptographicHash* hasher = nullptr;
   qint64 lastUpdateTimestamp = 0;
 };
@@ -40,9 +37,10 @@ class GrpcConnectionManager : public QObject {
 public:
   static void init(const QString& address = "127.0.0.1:50051");
 
-  static void sendData(const QString& key, const QByteArray& data);
+  static void shutdown();
 
-  static void sendFile(const QString& key, const QString& filePath);
+  static bool sendData(const QString& key, const QByteArray& data);
+  static bool sendFile(const QString& key, const QString& filePath);
 
   template <typename T>
   static void sendMessage(const QString& key, const T& protobufMessage) {
@@ -50,7 +48,6 @@ public:
   }
 
   static void registerCallback(const QString& key, MessageCallback callback);
-
   static void registerFileCallback(const QString& key, FileCallback callback);
 
   template <typename T>
@@ -72,7 +69,6 @@ public:
       if (any.Is<T>()) {
         return any.UnpackTo(&outMsg);
       }
-
       if (any.type_url().find('/') != std::string::npos) {
         qDebug() << "Type Mismatch in Any Wrapper. Got:" << any.type_url().c_str();
         return false;
@@ -87,26 +83,27 @@ public:
     return false;
   }
 
+  static void registerStatusCallback(StatusCallback callback);
+
 private:
   static GrpcConnectionManager& instance();
 
   void registerInternal(const QString& key, MessageCallback callback);
   void registerFileInternal(const QString& key, FileCallback callback);
 
+  bool sendDataInternal(const QString& key, const QByteArray& data);
+  bool sendFileInternal(const QString& key, const QString& filePath);
+  bool sendRawEnvelope(const broker::BrokerPayload& envelope);
+
   template <typename T>
   void sendMessageInternal(const QString& key, const T& protobufMessage) {
     broker::BrokerPayload envelope;
     envelope.set_handler_key(key.toStdString());
     envelope.set_sender_id(m_appName);
-    envelope.mutable_payload()->PackFrom(protobufMessage);
     envelope.set_topic(key.toStdString());
+    envelope.mutable_payload()->PackFrom(protobufMessage);
     sendRawEnvelope(envelope);
   }
-
-  void sendDataInternal(const QString& key, const QByteArray& data);
-  void sendFileInternal(const QString& key, const QString& filePath);
-
-  bool sendRawEnvelope(const broker::BrokerPayload& envelope);
 
   explicit GrpcConnectionManager(const QString& address);
   ~GrpcConnectionManager();
@@ -116,26 +113,25 @@ private:
 
 private slots:
   void onEnvelopeReceived(const broker::BrokerPayload& msg);
-
-  void processPayload(const QString& key, const QByteArray& data);
-  void processFilePayload(const QString& key, const QString& filePath);
-
+  void onCleanupTimer();
   void onWorkerConnected();
   void onWorkerDisconnected();
 
-  void onCleanupTimer();
+  void processFilePayload(const QString& key, const QString& filePath);
+  void processPayload(const QString& key, const QByteArray& data);
 
 private:
   GrpcWorker* m_pWorker;
-  QHash<QString, MessageCallback> m_handlers;
+
+  QHash<QString, MessageCallback> m_byteHandlers;
   QHash<QString, FileCallback> m_fileHandlers;
+  QVector<StatusCallback> m_statusCallbacks;
 
   QHash<QString, IncomingTransfer> m_incomingTransfers;
 
+  QTimer* m_cleanupTimer;
   QMutex m_mapMutex;
   bool m_isConnected;
   std::string m_appName;
   static GrpcConnectionManager* m_pInstance;
-
-  QTimer m_cleanupTimer;
 };
