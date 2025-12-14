@@ -56,7 +56,6 @@ int main() {
   printf("Listening for C++ messages...\n");
   fflush(stdout);
   while(1) {
-    processEvents(); // Process network events
     usleep(10000); // 10ms sleep
   }
   return 0;

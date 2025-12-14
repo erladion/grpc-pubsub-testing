@@ -1,6 +1,7 @@
 #include "grpcworker.h"
 
 #include <QDebug>
+#include <chrono>
 
 GrpcWorker::GrpcWorker(const QString& targetAddress, QObject* parent) : QThread(parent), m_target(targetAddress), m_running(true) {
   qRegisterMetaType<broker::BrokerPayload>();
@@ -14,20 +15,27 @@ GrpcWorker::~GrpcWorker() {
 void GrpcWorker::stop() {
   m_running = false;
 
-  QMutexLocker lock(&m_streamMutex);
-  if (m_context) {
-    m_context->TryCancel();
+  {
+    QMutexLocker lock(&m_streamMutex);
+    if (m_context) {
+      m_context->TryCancel();
+    }
   }
+
+  m_sleepCv.notify_all();
+}
+
+bool GrpcWorker::responsiveSleep(int milliseconds) {
+  std::unique_lock<std::mutex> lock(m_sleepMutex);
+  return !m_sleepCv.wait_for(lock, std::chrono::milliseconds(milliseconds), [this] { return !m_running; });
 }
 
 void GrpcWorker::run() {
   grpc::ChannelArguments args;
-  // KeepAlive settings to detect broken connections
-  args.SetInt(GRPC_ARG_KEEPALIVE_TIME_MS, 10000);    // Ping every 10s
-  args.SetInt(GRPC_ARG_KEEPALIVE_TIMEOUT_MS, 5000);  // Timeout 5s
+  args.SetInt(GRPC_ARG_KEEPALIVE_TIME_MS, 10000);
+  args.SetInt(GRPC_ARG_KEEPALIVE_TIMEOUT_MS, 5000);
   args.SetInt(GRPC_ARG_HTTP2_MAX_PINGS_WITHOUT_DATA, 0);
   args.SetInt(GRPC_ARG_KEEPALIVE_PERMIT_WITHOUT_CALLS, 1);
-
   args.SetInt(GRPC_ARG_MAX_RECEIVE_MESSAGE_LENGTH, 50 * 1024 * 1024);
   args.SetInt(GRPC_ARG_MAX_SEND_MESSAGE_LENGTH, 50 * 1024 * 1024);
 
@@ -36,9 +44,9 @@ void GrpcWorker::run() {
 
   while (m_running) {
     if (m_channel->GetState(true) != GRPC_CHANNEL_READY) {
-      for (int i = 0; i < 30 && m_running; ++i) {
-        QThread::msleep(100);
-      }
+      // Sleep 3s, but wake immediately if stop() is called
+      if (!responsiveSleep(3000))
+        break;
       continue;
     }
 
@@ -48,9 +56,8 @@ void GrpcWorker::run() {
     auto newStream = m_stub->MessageStream(newContext.get());
 
     if (!newStream) {
-      for (int i(0); i < 30 && m_running; ++i) {
-        QThread::msleep(100);
-      }
+      if (!responsiveSleep(3000))
+        break;
       continue;
     }
 
@@ -65,6 +72,7 @@ void GrpcWorker::run() {
 
     broker::BrokerPayload incomingMsg;
 
+    // Blocking Read (Will return false if TryCancel is called in stop())
     while (m_running && m_stream->Read(&incomingMsg)) {
       emit envelopeReceived(incomingMsg);
     }
@@ -79,9 +87,8 @@ void GrpcWorker::run() {
         m_stream.reset();
       }
 
-      for (int i = 0; i < 30 && m_running; i++) {
-        QThread::msleep(100);
-      }
+      if (!responsiveSleep(3000))
+        break;
     }
   }
 
@@ -94,17 +101,14 @@ bool GrpcWorker::writeMessage(const broker::BrokerPayload& msg) {
   QMutexLocker lock(&m_streamMutex);
   if (m_stream) {
     grpc::WriteOptions options;
-
-    if (msg.payload().ByteSizeLong() <= 1024) {
+    if (msg.payload().ByteSizeLong() <= 1024)
       options.set_no_compression();
-    }
 
-    if (!m_stream->Write(msg, options)) {
+    if (!m_stream->Write(msg)) {
       qWarning() << "Failed to write message to gRPC stream.";
       return false;
     }
     return true;
   }
-
   return false;
 }

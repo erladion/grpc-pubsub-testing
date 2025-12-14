@@ -40,8 +40,6 @@ GRPC_API int initConnection(const GrpcConfig* config);
 
 GRPC_API void shutdownConnection();
 
-GRPC_API void processEvents();
-
 GRPC_API void registerStatusCallback(GrpcStatusCallback cb, void* user_data);
 
 GRPC_API int sendData(const char* topic, const char* data, int len);
