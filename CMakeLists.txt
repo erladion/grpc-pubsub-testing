@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.14)
 
-project(grpc LANGUAGES CXX)
+project(grpc LANGUAGES CXX C)
 
 set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTOMOC ON)
@@ -19,15 +19,19 @@ find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Core)
 find_package(Protobuf REQUIRED)
 find_package(gRPC CONFIG REQUIRED)
 find_package(absl CONFIG REQUIRED)
+find_package(PkgConfig REQUIRED)
+
+pkg_check_modules(PROTOBUF_C REQUIRED libprotobuf-c)
+message(STATUS "Protobuf-C Libs: ${PROTOBUF_C_LIBRARIES}")
+message(STATUS "Protobuf-C Path: ${PROTOBUF_C_LIBRARY_DIRS}")
 
 set(PROTO_SRC broker.proto)
 set(PROTO_DIR ${CMAKE_CURRENT_SOURCE_DIR}/common)
 set(GENERATED_DIR ${CMAKE_CURRENT_SOURCE_DIR}/common/generated)
+set(GENERATED_C_DIR ${CMAKE_CURRENT_SOURCE_DIR}/common/generated-c)
 
 file(MAKE_DIRECTORY ${GENERATED_DIR})
-
-message(${GENERATED_DIR})
-message(${GENERATED_DIR}/${PROTO_SRC})
+file(MAKE_DIRECTORY ${GENERATED_C_DIR})
 
 set(PROTO_GENERATED_SOURCES
     ${GENERATED_DIR}/broker.pb.cc
@@ -41,6 +45,18 @@ set(PROTO_GENERATED_HEADERS
     ${GENERATED_DIR}/broker.grpc.pb.h
     ${GENERATED_DIR}/update.pb.h
     ${GENERATED_DIR}/update.grpc.pb.h
+)
+
+set(PROTO_GENERATED_C_SOURCES
+    ${GENERATED_C_DIR}/broker.pb-c.c
+    ${GENERATED_C_DIR}/update.pb-c.c
+    ${GENERATED_C_DIR}/google/protobuf/any.pb-c.c
+)
+
+set(PROTO_GENERATED_C_HEADERS
+    ${GENERATED_C_DIR}/broker.pb-c.h
+    ${GENERATED_C_DIR}/update.pb-c.h
+    ${GENERATED_C_DIR}/google/protobuf/any.pb-c.h
 )
 
 # server/grpcservermanager.h
@@ -87,6 +103,39 @@ target_link_libraries(GrpcConnectionLib PRIVATE Qt6::Core)
 
 else()
 
+    add_library(GrpcLib STATIC
+        ${PROTO_GENERATED_SOURCES}
+        ${PROTO_GENERATED_HEADERS}
+        common/grpcconnectionmanager.cpp
+        common/grpcconnectionmanager.h
+        common/grpcworker.cpp
+        common/grpcworker.h
+        common/protobuf_forward.h
+    )
+
+    target_include_directories(GrpcLib PUBLIC ${GENERATED_DIR})
+
+    target_link_libraries(GrpcLib PUBLIC
+        Qt${QT_VERSION_MAJOR}::Core
+        gRPC::grpc++
+        protobuf::libprotobuf
+        absl::base
+        absl::strings
+        absl::cord
+        absl::synchronization
+        absl::time
+        absl::flags
+        absl::log
+    )
+
+    add_library(GrpcConnectionLib SHARED
+        common/grpcconnectionapi.cpp
+        common/grpcconnectionapi.h
+    )
+
+    target_link_libraries(GrpcConnectionLib PRIVATE GrpcLib)
+    target_link_libraries(GrpcConnectionLib PRIVATE Qt6::Core)
+
 add_executable(server
   server/main.cpp
   common/protobuf_forward.h
@@ -123,6 +172,24 @@ add_executable(client2
   common/protobuf_forward.h
   ${PROTO_GENERATED_SOURCES}
   common/proto/update.proto
+)
+
+add_executable(client3-c
+    client3-c/main.c
+    ${PROTO_GENERATED_C_SOURCES}
+)
+
+target_link_libraries(client3-c PRIVATE
+    ${PROTOBUF_C_LIBRARIES}
+    GrpcConnectionLib
+)
+
+target_link_directories(client3-c PRIVATE ${PROTOBUF_C_LIBRARY_DIRS})
+
+target_include_directories(client3-c PRIVATE
+    ${GENERATED_C_DIR}
+    ${PROTOBUF_C_INCLUDE_DIRS}
+    common
 )
 
 target_include_directories(client1 PRIVATE ${GENERATED_DIR})

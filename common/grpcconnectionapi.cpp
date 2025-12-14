@@ -18,32 +18,32 @@ static void ensure_qt() {
   }
 }
 
-void grpc_api_init(const char* address) {
+void initConnection(const char* address) {
   ensure_qt();
   GrpcConnectionManager::init(QString::fromUtf8(address));
 }
 
-void grpc_process_events() {
+void processEvents() {
   if (QCoreApplication::instance()) {
     QCoreApplication::processEvents();
   }
 }
 
-void grpc_send_data(const char* topic, const char* data, int len) {
+void sendData(const char* topic, const char* data, int len) {
   QByteArray bytes(data, len);
   GrpcConnectionManager::sendData(QString::fromUtf8(topic), bytes);
 }
 
-void grpc_send_text(const char* topic, const char* text) {
+void sendText(const char* topic, const char* text) {
   QByteArray bytes(text);
   GrpcConnectionManager::sendData(QString::fromUtf8(topic), bytes);
 }
 
-void grpc_send_file(const char* topic, const char* filepath) {
+void sendFile(const char* topic, const char* filepath) {
   GrpcConnectionManager::sendFile(QString::fromUtf8(topic), QString::fromUtf8(filepath));
 }
 
-void grpc_register_callback(const char* topic, GrpcMessageCallback cb, void* user_data) {
+void registerCallback(const char* topic, GrpcMessageCallback cb, void* user_data) {
   QString qTopic = QString::fromUtf8(topic);
 
   // We capture the C function pointer 'cb' and 'user_data' in the C++ lambda
@@ -54,7 +54,7 @@ void grpc_register_callback(const char* topic, GrpcMessageCallback cb, void* use
   });
 }
 
-void grpc_register_file_callback(const char* topic, GrpcFileCallback cb, void* user_data) {
+void registerFileCallback(const char* topic, GrpcFileCallback cb, void* user_data) {
   QString qTopic = QString::fromUtf8(topic);
 
   GrpcConnectionManager::registerFileCallback(qTopic, [cb, user_data, qTopic](const QString& path) {

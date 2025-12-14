@@ -30,26 +30,26 @@ typedef void (*GrpcFileCallback)(const char* topic, const char* filepath, void* 
 
 // Initialize the library (starts Qt Core internally)
 // address: "127.0.0.1:50051" or "unix:///tmp/broker.sock"
-GRPC_API void grpc_api_init(const char* address);
+GRPC_API void initConnection(const char* address);
 
 // Drive the internal event loop.
 // MUST be called periodically (e.g., inside a while(1) loop) in the C app.
-GRPC_API void grpc_process_events();
+GRPC_API void processEvents();
 
 // Send raw bytes
-GRPC_API void grpc_send_data(const char* topic, const char* data, int len);
+GRPC_API void sendData(const char* topic, const char* data, int len);
 
 // Send a string (convenience wrapper)
-GRPC_API void grpc_send_text(const char* topic, const char* text);
+GRPC_API void sendText(const char* topic, const char* text);
 
 // Stream a file from disk
-GRPC_API void grpc_send_file(const char* topic, const char* filepath);
+GRPC_API void sendFile(const char* topic, const char* filepath);
 
 // Register a callback for raw messages
-GRPC_API void grpc_register_callback(const char* topic, GrpcMessageCallback cb, void* user_data);
+GRPC_API void registerCallback(const char* topic, GrpcMessageCallback cb, void* user_data);
 
 // Register a callback for file downloads
-GRPC_API void grpc_register_file_callback(const char* topic, GrpcFileCallback cb, void* user_data);
+GRPC_API void registerFileCallback(const char* topic, GrpcFileCallback cb, void* user_data);
 
 #ifdef __cplusplus
 }
