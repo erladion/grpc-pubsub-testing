@@ -18,6 +18,15 @@ int main(int argc, char* argv[]) {
   GrpcConnectionManager::registerCallback<communication::Update>("MessageReceived",
                                                                  [](const communication::Update& message) { qDebug() << "Got return message"; });
 
+  GrpcConnectionManager::registerCallback("MessageReceived2", [](const QByteArray& data) {
+    communication::Update msg;
+    if (msg.ParseFromArray(data.constData(), data.size())) {
+      qDebug() << "Received from C:" << msg.message().c_str();
+    } else {
+      qWarning() << "Failed to parse C message";
+    }
+  });
+
   QTimer t;
   QObject::connect(&t, &QTimer::timeout, []() {
     communication::Update update;
@@ -27,8 +36,18 @@ int main(int argc, char* argv[]) {
 
     GrpcConnectionManager::sendMessage("test", update);
   });
-
   t.start(2000);
+
+  QTimer tt;
+  QObject::connect(&tt, &QTimer::timeout, []() {
+    communication::Update update;
+    update.set_id("client2");
+    update.set_message("Sending another message");
+    update.set_timestamp_utc(QDateTime::currentMSecsSinceEpoch());
+
+    GrpcConnectionManager::sendData("test", QByteArray::fromStdString(update.SerializeAsString()));
+  });
+  tt.start(2500);
 
   QTimer::singleShot(5000, [&]() { GrpcConnectionManager::sendFile("file", "/mnt/c/Users/johan/Downloads/logo1.png"); });
 
