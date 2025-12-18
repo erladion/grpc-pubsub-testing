@@ -19,7 +19,7 @@
 
 using MessageCallback = std::function<void(const QByteArray&)>;
 using FileCallback = std::function<void(const QString&)>;
-using StatusCallback = std::function<void(bool)>;  // True = Connected, False = Disconnected
+using StatusCallback = std::function<void(bool)>;
 
 struct IncomingTransfer {
   QString originalTopic;
@@ -35,11 +35,12 @@ struct IncomingTransfer {
 class GrpcConnectionManager : public QObject {
   Q_OBJECT
 public:
-  static void init(const QString& address = "127.0.0.1:50051");
+  static void init(const QString& address = "127.0.0.1:50051", int compressionAlgo = 2, int keepAliveTime = 10000, int keepAliveTimeout = 5000);
 
   static void shutdown();
 
   static bool sendData(const QString& key, const QByteArray& data);
+  static bool sendDataRaw(const QString& key, const char* data, int len);
   static bool sendFile(const QString& key, const QString& filePath);
 
   template <typename T>
@@ -49,6 +50,7 @@ public:
 
   static void registerCallback(const QString& key, MessageCallback callback);
   static void registerFileCallback(const QString& key, FileCallback callback);
+  static void registerStatusCallback(StatusCallback callback);
 
   template <typename T>
   static void registerCallback(const QString& key, std::function<void(const T&)> callback) {
@@ -74,16 +76,12 @@ public:
         return false;
       }
     }
-
     outMsg.Clear();
     if (outMsg.ParseFromArray(raw.data(), raw.size())) {
       return true;
     }
-
     return false;
   }
-
-  static void registerStatusCallback(StatusCallback callback);
 
 private:
   static GrpcConnectionManager& instance();
@@ -92,6 +90,7 @@ private:
   void registerFileInternal(const QString& key, FileCallback callback);
 
   bool sendDataInternal(const QString& key, const QByteArray& data);
+  bool sendDataRawInternal(const QString& key, const char* data, int len);
   bool sendFileInternal(const QString& key, const QString& filePath);
   bool sendRawEnvelope(const broker::BrokerPayload& envelope);
 
@@ -105,7 +104,7 @@ private:
     sendRawEnvelope(envelope);
   }
 
-  explicit GrpcConnectionManager(const QString& address);
+  explicit GrpcConnectionManager(const QString& address, int compressionAlgo, int kaTime, int kaTimeout);
   ~GrpcConnectionManager();
 
   GrpcConnectionManager(const GrpcConnectionManager&) = delete;

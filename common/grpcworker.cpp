@@ -3,7 +3,7 @@
 #include <QDebug>
 #include <chrono>
 
-GrpcWorker::GrpcWorker(const QString& targetAddress, QObject* parent) : QThread(parent), m_target(targetAddress), m_running(true) {
+GrpcWorker::GrpcWorker(const WorkerConfig& config, QObject* parent) : QThread(parent), m_config(config), m_running(true) {
   qRegisterMetaType<broker::BrokerPayload>();
 }
 
@@ -32,26 +32,27 @@ bool GrpcWorker::responsiveSleep(int milliseconds) {
 
 void GrpcWorker::run() {
   grpc::ChannelArguments args;
-  args.SetInt(GRPC_ARG_KEEPALIVE_TIME_MS, 10000);
-  args.SetInt(GRPC_ARG_KEEPALIVE_TIMEOUT_MS, 5000);
+
+  args.SetInt(GRPC_ARG_KEEPALIVE_TIME_MS, m_config.keepAliveTime);
+  args.SetInt(GRPC_ARG_KEEPALIVE_TIMEOUT_MS, m_config.keepAliveTimeout);
+
   args.SetInt(GRPC_ARG_HTTP2_MAX_PINGS_WITHOUT_DATA, 0);
   args.SetInt(GRPC_ARG_KEEPALIVE_PERMIT_WITHOUT_CALLS, 1);
   args.SetInt(GRPC_ARG_MAX_RECEIVE_MESSAGE_LENGTH, 50 * 1024 * 1024);
   args.SetInt(GRPC_ARG_MAX_SEND_MESSAGE_LENGTH, 50 * 1024 * 1024);
 
-  m_channel = grpc::CreateCustomChannel(m_target.toStdString(), grpc::InsecureChannelCredentials(), args);
+  m_channel = grpc::CreateCustomChannel(m_config.targetAddress.toStdString(), grpc::InsecureChannelCredentials(), args);
   m_stub = broker::BrokerService::NewStub(m_channel);
 
   while (m_running) {
     if (m_channel->GetState(true) != GRPC_CHANNEL_READY) {
-      // Sleep 3s, but wake immediately if stop() is called
       if (!responsiveSleep(3000))
         break;
       continue;
     }
 
     auto newContext = std::make_shared<grpc::ClientContext>();
-    newContext->set_compression_algorithm(GRPC_COMPRESS_GZIP);
+    newContext->set_compression_algorithm(static_cast<grpc_compression_algorithm>(m_config.compressionAlgo));
 
     auto newStream = m_stub->MessageStream(newContext.get());
 
@@ -67,12 +68,11 @@ void GrpcWorker::run() {
       m_stream = std::move(newStream);
     }
 
-    qDebug() << "gRPC Stream Connected to" << m_target;
+    qDebug() << "gRPC Stream Connected to" << m_config.targetAddress;
     emit connected();
 
     broker::BrokerPayload incomingMsg;
 
-    // Blocking Read (Will return false if TryCancel is called in stop())
     while (m_running && m_stream->Read(&incomingMsg)) {
       emit envelopeReceived(incomingMsg);
     }
@@ -104,7 +104,7 @@ bool GrpcWorker::writeMessage(const broker::BrokerPayload& msg) {
     if (msg.payload().ByteSizeLong() <= 1024)
       options.set_no_compression();
 
-    if (!m_stream->Write(msg)) {
+    if (!m_stream->Write(msg, options)) {
       qWarning() << "Failed to write message to gRPC stream.";
       return false;
     }

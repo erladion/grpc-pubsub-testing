@@ -2,11 +2,9 @@
 #define GRPCWORKER_H
 
 #include <grpcpp/grpcpp.h>
-
 #include <QByteArray>
 #include <QMutex>
 #include <QThread>
-
 #include <atomic>
 #include <condition_variable>
 #include <memory>
@@ -15,10 +13,18 @@
 
 Q_DECLARE_METATYPE(broker::BrokerPayload)
 
+struct WorkerConfig {
+  QString targetAddress;
+  int compressionAlgo = 2;  // Default GZIP
+  int keepAliveTime = 10000;
+  int keepAliveTimeout = 5000;
+};
+
 class GrpcWorker : public QThread {
   Q_OBJECT
 public:
-  explicit GrpcWorker(const QString& targetAddress, QObject* parent = nullptr);
+  explicit GrpcWorker(const WorkerConfig& config, QObject* parent = nullptr);
+
   ~GrpcWorker() override;
 
   bool writeMessage(const broker::BrokerPayload& msg);
@@ -37,7 +43,8 @@ private:
   bool responsiveSleep(int milliseconds);
 
 private:
-  QString m_target;
+  WorkerConfig m_config;
+
   std::atomic<bool> m_running;
 
   std::mutex m_sleepMutex;

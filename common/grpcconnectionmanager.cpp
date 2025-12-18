@@ -14,12 +14,11 @@
 GrpcConnectionManager* GrpcConnectionManager::m_pInstance = nullptr;
 static const int STREAM_CHUNK_SIZE = 64 * 1024;
 
-void GrpcConnectionManager::init(const QString& address) {
+void GrpcConnectionManager::init(const QString& address, int compressionAlgo, int keepAliveTime, int keepAliveTimeout) {
   if (m_pInstance) {
-    qWarning() << "GrpcConnectionManager already initialized!";
     return;
   }
-  m_pInstance = new GrpcConnectionManager(address);
+  m_pInstance = new GrpcConnectionManager(address, compressionAlgo, keepAliveTime, keepAliveTimeout);
 }
 
 void GrpcConnectionManager::shutdown() {
@@ -46,6 +45,10 @@ bool GrpcConnectionManager::sendData(const QString& key, const QByteArray& data)
   return instance().sendDataInternal(key, data);
 }
 
+bool GrpcConnectionManager::sendDataRaw(const QString& key, const char* data, int len) {
+  return instance().sendDataRawInternal(key, data, len);
+}
+
 bool GrpcConnectionManager::sendFile(const QString& key, const QString& filePath) {
   return instance().sendFileInternal(key, filePath);
 }
@@ -57,9 +60,10 @@ void GrpcConnectionManager::registerFileCallback(const QString& key, FileCallbac
   instance().registerFileInternal(key, callback);
 }
 
-GrpcConnectionManager::GrpcConnectionManager(const QString& address) : m_pWorker(nullptr), m_isConnected(false) {
+GrpcConnectionManager::GrpcConnectionManager(const QString& address, int compressionAlgo, int kaTime, int kaTimeout)
+    : m_pWorker(nullptr), m_isConnected(false) {
   if (!QCoreApplication::instance()) {
-    qFatal("QCoreApplication must exist before initializing GrpcConnectionManager");
+    qFatal("QCoreApplication required");
   }
 
   m_appName = QCoreApplication::applicationName().toStdString();
@@ -67,7 +71,14 @@ GrpcConnectionManager::GrpcConnectionManager(const QString& address) : m_pWorker
     m_appName = "UnknownApp";
   }
 
-  m_pWorker = new GrpcWorker(address, nullptr);
+  // Build the Config Struct
+  WorkerConfig config;
+  config.targetAddress = address;
+  config.compressionAlgo = compressionAlgo;
+  config.keepAliveTime = kaTime;
+  config.keepAliveTimeout = kaTimeout;
+
+  m_pWorker = new GrpcWorker(config, nullptr);
 
   connect(m_pWorker, &GrpcWorker::envelopeReceived, this, &GrpcConnectionManager::onEnvelopeReceived, Qt::QueuedConnection);
   connect(m_pWorker, &GrpcWorker::connected, this, &GrpcConnectionManager::onWorkerConnected, Qt::QueuedConnection);
@@ -87,6 +98,13 @@ GrpcConnectionManager::~GrpcConnectionManager() {
   }
 }
 
+bool GrpcConnectionManager::sendRawEnvelope(const broker::BrokerPayload& envelope) {
+  if (m_pWorker) {
+    return m_pWorker->writeMessage(envelope);
+  }
+  return false;
+}
+
 bool GrpcConnectionManager::sendDataInternal(const QString& key, const QByteArray& data) {
   if (!m_isConnected)
     return false;
@@ -100,11 +118,23 @@ bool GrpcConnectionManager::sendDataInternal(const QString& key, const QByteArra
   return sendRawEnvelope(msg);
 }
 
+bool GrpcConnectionManager::sendDataRawInternal(const QString& key, const char* data, int len) {
+  if (!m_isConnected)
+    return false;
+
+  broker::BrokerPayload msg;
+  msg.set_handler_key(key.toStdString());
+  msg.set_sender_id(m_appName);
+  msg.set_topic(key.toStdString());
+  msg.set_raw_data(data, len);
+
+  return sendRawEnvelope(msg);
+}
+
 bool GrpcConnectionManager::sendFileInternal(const QString& key, const QString& filePath) {
   if (!m_isConnected)
     return false;
 
-  // Async launch - we return 'true' meaning "Request Accepted"
   QFileInfo check(filePath);
   if (!check.exists() || !check.isReadable())
     return false;
@@ -119,10 +149,8 @@ bool GrpcConnectionManager::sendFileInternal(const QString& key, const QString& 
     std::string transferId = QUuid::createUuid().toString().toStdString();
     std::string stdTopic = key.toStdString();
 
-    // Calculate Hash
     QCryptographicHash hasher(QCryptographicHash::Sha256);
 
-    // Metadata
     QJsonObject meta;
     meta["filename"] = fileInfo.fileName();
     meta["size"] = totalSize;
@@ -138,7 +166,6 @@ bool GrpcConnectionManager::sendFileInternal(const QString& key, const QString& 
     if (!sendRawEnvelope(metaMsg))
       return;
 
-    // Stream
     int totalChunks = (totalSize + STREAM_CHUNK_SIZE - 1) / STREAM_CHUNK_SIZE;
     int sequence = 0;
 
@@ -158,7 +185,7 @@ bool GrpcConnectionManager::sendFileInternal(const QString& key, const QString& 
       if (!sendRawEnvelope(msg)) {
         QThread::msleep(100);
         if (!sendRawEnvelope(msg))
-          break;  // Give up
+          break;
       }
 
       if (sequence % 16 == 0)
@@ -178,13 +205,6 @@ bool GrpcConnectionManager::sendFileInternal(const QString& key, const QString& 
   });
 
   return true;
-}
-
-bool GrpcConnectionManager::sendRawEnvelope(const broker::BrokerPayload& envelope) {
-  if (m_pWorker) {
-    return m_pWorker->writeMessage(envelope);
-  }
-  return false;
 }
 
 void GrpcConnectionManager::registerInternal(const QString& key, MessageCallback callback) {
@@ -231,6 +251,7 @@ void GrpcConnectionManager::onEnvelopeReceived(const broker::BrokerPayload& msg)
     QString safeId = transferId;
     safeId.replace("{", "").replace("}", "");
     newItem.tempFilePath = tempDir + "/grpc_" + safeId + ".dat";
+
     newItem.tempFile = new QFile(newItem.tempFilePath);
     if (!newItem.tempFile->open(QIODevice::ReadWrite)) {
       qCritical() << "Failed to create temp file:" << newItem.tempFilePath;
@@ -240,7 +261,6 @@ void GrpcConnectionManager::onEnvelopeReceived(const broker::BrokerPayload& msg)
 
     newItem.hasher = new QCryptographicHash(QCryptographicHash::Sha256);
     m_incomingTransfers.insert(transferId, newItem);
-    qDebug() << "Incoming Transfer Started:" << newItem.intendedFilename;
     return;
   }
 
@@ -286,8 +306,6 @@ void GrpcConnectionManager::onEnvelopeReceived(const broker::BrokerPayload& msg)
       qCritical() << "File corruption! Checksum mismatch.";
       QFile::remove(transfer.tempFilePath);
     } else {
-      qDebug() << "Integrity Verified. Finalizing:" << transfer.intendedFilename;
-
       QString downDir = QStandardPaths::writableLocation(QStandardPaths::DownloadLocation);
       QString finalPath = downDir + "/" + transfer.intendedFilename;
 
@@ -303,8 +321,6 @@ void GrpcConnectionManager::onEnvelopeReceived(const broker::BrokerPayload& msg)
         m_incomingTransfers.remove(transferId);
         lock.unlock();
         processFilePayload(topic, finalPath);
-      } else {
-        qCritical() << "Failed to rename/move temp file.";
       }
     }
     return;
@@ -338,12 +354,10 @@ void GrpcConnectionManager::processFilePayload(const QString& key, const QString
 void GrpcConnectionManager::onWorkerConnected() {
   QMutexLocker lock(&m_mapMutex);
   m_isConnected = true;
-
   for (auto& cb : m_statusCallbacks) {
     cb(true);
   }
 
-  // Resubscribe
   QStringList allTopics = m_byteHandlers.keys() + m_fileHandlers.keys();
   allTopics.removeDuplicates();
   for (const QString& topic : allTopics) {
@@ -358,7 +372,6 @@ void GrpcConnectionManager::onWorkerConnected() {
 void GrpcConnectionManager::onWorkerDisconnected() {
   QMutexLocker lock(&m_mapMutex);
   m_isConnected = false;
-
   for (auto& cb : m_statusCallbacks) {
     cb(false);
   }
@@ -370,7 +383,6 @@ void GrpcConnectionManager::onCleanupTimer() {
   auto it = m_incomingTransfers.begin();
   while (it != m_incomingTransfers.end()) {
     if (now - it.value().lastUpdateTimestamp > 30000) {
-      qWarning() << "Transfer Timed Out. Deleting:" << it.value().intendedFilename;
       if (it.value().tempFile) {
         it.value().tempFile->close();
         delete it.value().tempFile;

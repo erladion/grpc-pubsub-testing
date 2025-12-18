@@ -1,8 +1,6 @@
 #include "global_broker.h"
 #include "calldata.h"
-
 #include "grpcworker.h"
-
 #include "safe_logger.h"
 
 #include <QObject>
@@ -51,7 +49,7 @@ void GlobalBroker::Broadcast(const broker::BrokerPayload& msg, CallData* sender)
 
   m_stats.totalMessagesProcessed++;
   m_stats.messagesThisInterval++;
-  const size_t msgSize = msg.ByteSizeLong();
+  size_t msgSize = forwardMsg.ByteSizeLong();
   m_stats.totalBytesProcessed += msgSize;
   m_stats.bytesThisInterval += msgSize;
 
@@ -59,9 +57,9 @@ void GlobalBroker::Broadcast(const broker::BrokerPayload& msg, CallData* sender)
     forwardMsg.set_origin_broker_id(m_brokerId);
   }
 
-  auto sharedMsg = std::make_shared<broker::BrokerPayload>(msg);
+  auto sharedMsg = std::make_shared<broker::BrokerPayload>(forwardMsg);
 
-  // Local delivery
+  // Local Delivery
   {
     std::shared_lock<std::shared_mutex> lock(m_clientMutex);
     for (auto* client : m_clients) {
@@ -75,7 +73,7 @@ void GlobalBroker::Broadcast(const broker::BrokerPayload& msg, CallData* sender)
     }
   }
 
-  // Bridge flooding
+  // Bridge Flooding
   {
     std::lock_guard<std::mutex> lock(m_peerMutex);
     for (GrpcWorker* peer : m_peers) {
@@ -86,7 +84,15 @@ void GlobalBroker::Broadcast(const broker::BrokerPayload& msg, CallData* sender)
 
 void GlobalBroker::connectToPeer(const std::string& address) {
   const QString qtAddress = QString::fromStdString(address);
-  GrpcWorker* newPeer = new GrpcWorker(qtAddress);
+
+  // Use WorkerConfig to match GrpcWorker constructor
+  WorkerConfig config;
+  config.targetAddress = qtAddress;
+  config.compressionAlgo = 2;  // GZIP
+  config.keepAliveTime = 10000;
+  config.keepAliveTimeout = 5000;
+
+  GrpcWorker* newPeer = new GrpcWorker(config);
 
   QObject::connect(newPeer, &GrpcWorker::envelopeReceived, [this](broker::BrokerPayload msg) { this->injectRemoteMessage(msg); });
 
@@ -141,8 +147,8 @@ void GlobalBroker::StatsLoop() {
     const double kbSec = bytesPerSec / 1024.0;
 
     if (messagePerSec > 0 || currentClients > 0) {
-      Logger::Log(Logger::Type::Info, "[STATS] Clients: " + std::to_string(currentClients) + " | MPS: " + std::to_string(messagePerSec) +
-                                          " | Throughput: " + std::to_string(kbSec) + "KB/s");
+      Logger::Log(Logger::Type::Info, "[STATS] Clients: " + std::to_string(currentClients) + " | Peers: " + std::to_string(m_peers.size()) +
+                                          " | MPS: " + std::to_string(messagePerSec) + " | Throughput: " + std::to_string(kbSec) + " KB/s");
     }
   }
 }
