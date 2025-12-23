@@ -60,16 +60,21 @@ void GlobalBroker::Broadcast(const broker::BrokerPayload& msg, CallData* sender)
   auto sharedMsg = std::make_shared<broker::BrokerPayload>(forwardMsg);
 
   // Local Delivery
+  std::vector<std::shared_ptr<CallData>> targets;
   {
     std::shared_lock<std::shared_mutex> lock(m_clientMutex);
-    for (auto& client : m_clients) {
-      if (client.get() == sender) {
-        continue;
-      }
+    targets.reserve(m_clients.size());
 
-      if (client->IsSubscribed(sharedMsg->topic())) {
-        client->AsyncSend(sharedMsg);
+    for (const auto& client : m_clients) {
+      if (client.get() != sender) {
+        targets.push_back(client);
       }
+    }
+  }
+
+  for (auto& client : targets) {
+    if (client->IsSubscribed(sharedMsg->topic())) {
+      client->AsyncSend(sharedMsg);
     }
   }
 
