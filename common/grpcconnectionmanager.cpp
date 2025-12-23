@@ -360,7 +360,7 @@ void GrpcConnectionManager::onWorkerConnected() {
 
   QStringList allTopics = m_byteHandlers.keys() + m_fileHandlers.keys();
   allTopics.removeDuplicates();
-  for (const QString& topic : allTopics) {
+  for (const QString& topic : std::as_const(allTopics)) {
     broker::BrokerPayload subMsg;
     subMsg.set_handler_key("__SUBSCRIBE__");
     subMsg.set_sender_id(m_appName);
