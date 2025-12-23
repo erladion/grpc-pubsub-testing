@@ -142,7 +142,6 @@ add_executable(server
   common/grpcworker.h
   common/grpcworker.cpp
   ${PROTO_GENERATED_SOURCES}
-  server/async_structs.h
   server/calldata.h
   server/server.h
   server/global_broker.h
