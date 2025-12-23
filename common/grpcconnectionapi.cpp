@@ -59,6 +59,12 @@ int initConnection(const GrpcConfig* config) {
     return GRPC_SUCCESS;
   }
 
+  if (QCoreApplication::instance()) {
+    GrpcConnectionManager::init(QString::fromUtf8(config->address), config->compression_algorithm, config->keepalive_time_ms,
+                                config->keepalive_timeout_ms);
+    return GRPC_SUCCESS;
+  }
+
   static int argc = 1;
   static char* argv[] = {(char*)"GrpcCWrapper", nullptr};
 
