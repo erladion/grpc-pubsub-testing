@@ -6,13 +6,13 @@
 #include <QObject>
 #include <QUuid>
 
-void GlobalBroker::Register(CallData* client) {
+void GlobalBroker::Register(std::shared_ptr<CallData> client) {
   std::unique_lock<std::shared_mutex> lock(m_clientMutex);
   m_clients.insert(client);
   m_stats.activeClients++;
 }
 
-void GlobalBroker::Unregister(CallData* client) {
+void GlobalBroker::Unregister(std::shared_ptr<CallData> client) {
   std::unique_lock<std::shared_mutex> lock(m_clientMutex);
   m_clients.erase(client);
   m_stats.activeClients--;
@@ -62,8 +62,8 @@ void GlobalBroker::Broadcast(const broker::BrokerPayload& msg, CallData* sender)
   // Local Delivery
   {
     std::shared_lock<std::shared_mutex> lock(m_clientMutex);
-    for (auto* client : m_clients) {
-      if (client == sender) {
+    for (auto& client : m_clients) {
+      if (client.get() == sender) {
         continue;
       }
 

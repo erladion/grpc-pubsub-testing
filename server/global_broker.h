@@ -2,6 +2,7 @@
 #define GLOBAL_BROKER_H
 
 #include <algorithm>
+#include <memory>
 #include <mutex>
 #include <set>
 #include <shared_mutex>
@@ -22,9 +23,9 @@ public:
     return inst;
   }
 
-  void Register(CallData* client);
-  void Unregister(CallData* client);
-  void Broadcast(const broker::BrokerPayload& msg, CallData* sender = nullptr);
+  void Register(std::shared_ptr<CallData> client);
+  void Unregister(std::shared_ptr<CallData> client);
+  void Broadcast(const broker::BrokerPayload& msg, CallData* sender);
 
   void setBrokerId(const std::string& id) { m_brokerId = id; }
 
@@ -41,7 +42,7 @@ private:
 
 private:
   std::shared_mutex m_clientMutex;
-  std::set<CallData*> m_clients;
+  std::set<std::shared_ptr<CallData>> m_clients;
 
   std::mutex m_peerMutex;
   std::vector<GrpcWorker*> m_peers;

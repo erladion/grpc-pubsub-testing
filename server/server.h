@@ -67,7 +67,7 @@ public:
     // Logger::Log("Async Server listening on " + address + " with " + std::to_string(threads) + " threads");
 
     for (int i(0); i < threads; ++i) {
-      new CallData(&m_service, m_completionQueue.get());
+      CallData::Create(&m_service, m_completionQueue.get());
     }
 
     for (int i(0); i < threads; ++i) {
