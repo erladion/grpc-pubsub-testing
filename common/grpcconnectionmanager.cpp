@@ -41,6 +41,10 @@ void GrpcConnectionManager::registerStatusCallback(StatusCallback callback) {
   callback(connected);
 }
 
+bool GrpcConnectionManager::sendMessage(const QString& key, const QString& message) {
+  return instance().sendDataInternal(key, message.toUtf8());
+}
+
 bool GrpcConnectionManager::sendData(const QString& key, const QByteArray& data) {
   return instance().sendDataInternal(key, data);
 }

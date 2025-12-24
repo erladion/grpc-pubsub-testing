@@ -13,6 +13,7 @@
 #include <functional>
 
 #include <google/protobuf/any.h>
+#include <google/protobuf/message.h>
 
 #include "grpcworker.h"
 #include "protobuf_forward.h"
@@ -39,12 +40,14 @@ public:
 
   static void shutdown();
 
+  static bool sendMessage(const QString& key, const QString& message);
   static bool sendData(const QString& key, const QByteArray& data);
   static bool sendDataRaw(const QString& key, const char* data, int len);
   static bool sendFile(const QString& key, const QString& filePath);
 
   template <typename T>
-  static void sendMessage(const QString& key, const T& protobufMessage) {
+  static typename std::enable_if<std::is_base_of<google::protobuf::Message, T>::value>::type sendMessage(const QString& key,
+                                                                                                         const T& protobufMessage) {
     instance().sendMessageInternal(key, protobufMessage);
   }
 
