@@ -25,14 +25,14 @@ public:
 
   void Register(std::shared_ptr<CallData> client);
   void Unregister(std::shared_ptr<CallData> client);
-  void Broadcast(const broker::BrokerPayload& msg, CallData* sender);
+  void Broadcast(const broker::BrokerPayload& msg, CallData* sender, GrpcWorker* sourcePeer = nullptr);
 
   void setBrokerId(const std::string& id) { m_brokerId = id; }
 
   void connectToPeer(const std::string& address);
   void removePeer(GrpcWorker* peer);
 
-  void injectRemoteMessage(const broker::BrokerPayload& msg);
+  void injectRemoteMessage(const broker::BrokerPayload& msg, GrpcWorker* sourcePeer = nullptr);
 
 private:
   GlobalBroker();

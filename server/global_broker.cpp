@@ -18,7 +18,7 @@ void GlobalBroker::Unregister(std::shared_ptr<CallData> client) {
   m_stats.activeClients--;
 }
 
-void GlobalBroker::Broadcast(const broker::BrokerPayload& msg, CallData* sender) {
+void GlobalBroker::Broadcast(const broker::BrokerPayload& msg, CallData* sender, GrpcWorker* sourcePeer) {
   broker::BrokerPayload forwardMsg = msg;
 
   std::string uniqueId = forwardMsg.message_uuid();
@@ -57,7 +57,7 @@ void GlobalBroker::Broadcast(const broker::BrokerPayload& msg, CallData* sender)
     forwardMsg.set_origin_broker_id(m_brokerId);
   }
 
-  auto sharedMsg = std::make_shared<broker::BrokerPayload>(forwardMsg);
+  auto sharedMsg = std::make_shared<broker::BrokerPayload>(std::move(forwardMsg));
 
   // Local Delivery
   std::vector<std::shared_ptr<CallData>> targets;
@@ -82,6 +82,9 @@ void GlobalBroker::Broadcast(const broker::BrokerPayload& msg, CallData* sender)
   {
     std::lock_guard<std::mutex> lock(m_peerMutex);
     for (GrpcWorker* peer : m_peers) {
+      if (peer == sourcePeer) {
+        continue;
+      }
       peer->writeMessage(*sharedMsg);
     }
   }
@@ -99,7 +102,7 @@ void GlobalBroker::connectToPeer(const std::string& address) {
 
   GrpcWorker* newPeer = new GrpcWorker(config);
 
-  QObject::connect(newPeer, &GrpcWorker::envelopeReceived, [this](broker::BrokerPayload msg) { this->injectRemoteMessage(msg); });
+  QObject::connect(newPeer, &GrpcWorker::envelopeReceived, [this, newPeer](broker::BrokerPayload msg) { this->injectRemoteMessage(msg, newPeer); });
 
   newPeer->start();
 
@@ -120,8 +123,8 @@ void GlobalBroker::removePeer(GrpcWorker* peer) {
   }
 }
 
-void GlobalBroker::injectRemoteMessage(const broker::BrokerPayload& msg) {
-  Broadcast(msg, nullptr);
+void GlobalBroker::injectRemoteMessage(const broker::BrokerPayload& msg, GrpcWorker* sourcePeer) {
+  Broadcast(msg, nullptr, sourcePeer);
 }
 
 GlobalBroker::GlobalBroker() : m_running(true), m_monitorThread(std::thread(&GlobalBroker::StatsLoop, this)) {}
