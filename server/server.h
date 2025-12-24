@@ -92,7 +92,8 @@ private:
       }
 
       Tag* t = static_cast<Tag*>(tag);
-      t->connection->Proceed(t, ok);
+      std::shared_ptr<CallData> lifeLock = t->connection;
+      lifeLock->Proceed(t, ok);
     }
   }
 
