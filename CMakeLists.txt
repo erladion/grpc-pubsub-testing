@@ -59,168 +59,19 @@ set(PROTO_GENERATED_C_HEADERS
     ${GENERATED_C_DIR}/google/protobuf/any.pb-c.h
 )
 
-# server/grpcservermanager.h
-# server/grpcservermanager.cpp
-# server/grpcbrokerservice.h
-# server/grpcbrokerservice.cpp
-
 include_directories(common)
+add_subdirectory(common)
 
-if (DEFINED BUILD_LIB_ONLY)
+if (NOT DEFINED BUILD_LIB_ONLY)
+    add_subdirectory(server)
+    add_subdirectory(client1)
+    add_subdirectory(client2)
+    add_subdirectory(client3-c)
+    #add_subdirectory(monitor)
 
-add_library(GrpcLib STATIC
-    ${PROTO_GENERATED_SOURCES}
-    ${PROTO_GENERATED_HEADERS}
-    common/grpcconnectionmanager.cpp
-    common/grpcconnectionmanager.h
-    common/grpcworker.cpp
-    common/grpcworker.h
-    common/protobuf_forward.h
-)
-
-target_include_directories(GrpcLib PUBLIC ${GENERATED_DIR})
-
-target_link_libraries(GrpcLib PUBLIC
-    Qt${QT_VERSION_MAJOR}::Core
-    gRPC::grpc++
-    protobuf::libprotobuf
-    absl::base
-    absl::strings
-    absl::cord
-    absl::synchronization
-    absl::time
-    absl::flags
-    absl::log
-)
-
-add_library(GrpcConnectionLib SHARED
-    common/grpcconnectionapi.cpp
-    common/grpcconnectionapi.h
-)
-
-target_link_libraries(GrpcConnectionLib PRIVATE GrpcLib)
-target_link_libraries(GrpcConnectionLib PRIVATE Qt6::Core)
-
-else()
-
-    add_library(GrpcLib STATIC
-        ${PROTO_GENERATED_SOURCES}
-        ${PROTO_GENERATED_HEADERS}
-        common/grpcconnectionmanager.cpp
-        common/grpcconnectionmanager.h
-        common/grpcworker.cpp
-        common/grpcworker.h
-        common/protobuf_forward.h
+    include(GNUInstallDirs)
+    install(TARGETS server client1 client2
+        LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
     )
-
-    target_include_directories(GrpcLib PUBLIC ${GENERATED_DIR})
-
-    target_link_libraries(GrpcLib PUBLIC
-        Qt${QT_VERSION_MAJOR}::Core
-        gRPC::grpc++
-        protobuf::libprotobuf
-        absl::base
-        absl::strings
-        absl::cord
-        absl::synchronization
-        absl::time
-        absl::flags
-        absl::log
-    )
-
-    add_library(GrpcConnectionLib SHARED
-        common/grpcconnectionapi.cpp
-        common/grpcconnectionapi.h
-    )
-
-    target_link_libraries(GrpcConnectionLib PRIVATE GrpcLib)
-    target_link_libraries(GrpcConnectionLib PRIVATE Qt6::Core)
-
-add_executable(server
-  server/main.cpp
-  common/protobuf_forward.h
-  common/grpcworker.h
-  common/grpcworker.cpp
-  ${PROTO_GENERATED_SOURCES}
-  server/calldata.h
-  server/server.h
-  server/global_broker.h
-  server/global_broker.cpp
-  server/safe_logger.h
-  server/server_stats.h
-  server/calldata.cpp
-)
-
-add_executable(client1
-  client1/main.cpp
-  common/grpcconnectionmanager.h
-  common/grpcconnectionmanager.cpp
-  common/grpcworker.h
-  common/grpcworker.cpp
-  common/protobuf_forward.h
-  ${PROTO_GENERATED_SOURCES}
-  common/proto/update.proto
-  common/grpcconnectionapi.h common/grpcconnectionapi.cpp
-)
-
-add_executable(client2
-  client2/main.cpp
-  common/grpcconnectionmanager.h
-  common/grpcconnectionmanager.cpp
-  common/grpcworker.h
-  common/grpcworker.cpp
-  common/protobuf_forward.h
-  ${PROTO_GENERATED_SOURCES}
-  common/proto/update.proto
-)
-
-add_executable(client3-c
-    client3-c/main.c
-    ${PROTO_GENERATED_C_SOURCES}
-)
-
-target_link_libraries(client3-c PRIVATE
-    ${PROTOBUF_C_LIBRARIES}
-    GrpcConnectionLib
-)
-
-target_link_directories(client3-c PRIVATE ${PROTOBUF_C_LIBRARY_DIRS})
-
-target_include_directories(client3-c PRIVATE
-    ${GENERATED_C_DIR}
-    ${PROTOBUF_C_INCLUDE_DIRS}
-    common
-)
-
-target_include_directories(client1 PRIVATE ${GENERATED_DIR})
-target_include_directories(client2 PRIVATE ${GENERATED_DIR})
-target_include_directories(server PRIVATE ${GENERATED_DIR})
-
-target_link_libraries(server
-    Qt${QT_VERSION_MAJOR}::Core
-    protobuf::libprotobuf
-    gRPC::grpc++
-    gRPC::grpc
-    ${PROTOBUF_LIBRARIES}
-)
-target_link_libraries(client1
-    Qt${QT_VERSION_MAJOR}::Core
-    protobuf::libprotobuf
-    gRPC::grpc++
-    gRPC::grpc
-    ${PROTOBUF_LIBRARIES}
-)
-target_link_libraries(client2
-    Qt${QT_VERSION_MAJOR}::Core
-    protobuf::libprotobuf
-    gRPC::grpc++
-    gRPC::grpc
-    ${PROTOBUF_LIBRARIES}
-)
-
-include(GNUInstallDirs)
-install(TARGETS server client1 client2
-    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
-    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
-)
 endif()
