@@ -3,6 +3,8 @@
 #include "grpcworker.h"
 #include "safe_logger.h"
 
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QObject>
 #include <QUuid>
 
@@ -158,5 +160,26 @@ void GlobalBroker::StatsLoop() {
       Logger::Log(Logger::Type::Info, "[STATS] Clients: " + std::to_string(currentClients) + " | Peers: " + std::to_string(m_peers.size()) +
                                           " | MPS: " + std::to_string(messagePerSec) + " | Throughput: " + std::to_string(kbSec) + " KB/s");
     }
+
+    QJsonObject stats;
+    stats["type"] = "stats_update";
+    stats["broker_id"] = QString::fromStdString(m_brokerId);
+    stats["clients"] = currentClients;
+    stats["peers_count"] = (int)m_peers.size();
+    stats["msgs_per_sec"] = (qint64)messagePerSec;
+    stats["kb_per_sec"] = kbSec;
+    stats["total_msgs"] = (qint64)m_stats.totalMessagesProcessed.load();
+    stats["uptime_sec"] = 0;
+
+    QByteArray payload = QJsonDocument(stats).toJson(QJsonDocument::Compact);
+
+    broker::BrokerPayload msg;
+    msg.set_topic("__SYS_STATS__");
+    msg.set_handler_key("__SYS_STATS__");
+    msg.set_sender_id("BROKER_SYSTEM");
+    msg.set_origin_broker_id(m_brokerId);
+    msg.set_raw_data(payload.toStdString());
+
+    Broadcast(msg, nullptr);
   }
 }

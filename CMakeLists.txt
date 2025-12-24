@@ -67,7 +67,7 @@ if (NOT DEFINED BUILD_LIB_ONLY)
     add_subdirectory(client1)
     add_subdirectory(client2)
     add_subdirectory(client3-c)
-    #add_subdirectory(monitor)
+    add_subdirectory(monitor)
 
     include(GNUInstallDirs)
     install(TARGETS server client1 client2
