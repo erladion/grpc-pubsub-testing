@@ -45,7 +45,7 @@ private:
   std::set<std::shared_ptr<CallData>> m_clients;
 
   std::mutex m_peerMutex;
-  std::vector<GrpcWorker*> m_peers;
+  std::vector<std::unique_ptr<GrpcWorker>> m_peers;
 
   ServerStats m_stats;
   std::atomic<bool> m_running;

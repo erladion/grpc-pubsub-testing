@@ -112,7 +112,8 @@ void GlobalBroker::Broadcast(const broker::BrokerPayload& msg, CallData* sender,
   // Bridge Flooding
   {
     std::lock_guard<std::mutex> lock(m_peerMutex);
-    for (GrpcWorker* peer : m_peers) {
+    for (const auto& peerPtr : m_peers) {
+      GrpcWorker* peer = peerPtr.get();
       if (peer == sourcePeer) {
         continue;
       }
@@ -129,24 +130,24 @@ void GlobalBroker::connectToPeer(const std::string& address) {
   config.keepAliveTime = 10000;
   config.keepAliveTimeout = 5000;
 
-  GrpcWorker* newPeer = new GrpcWorker(config, nullptr, nullptr);
-  newPeer->setMessageCallback([this, newPeer](const broker::BrokerPayload& msg) { this->injectRemoteMessage(msg, newPeer); });
+  auto newPeer = std::make_unique<GrpcWorker>(config, nullptr, nullptr);
+  GrpcWorker* peerPtr = newPeer.get();
+  newPeer->setMessageCallback([this, peerPtr](const broker::BrokerPayload& msg) { this->injectRemoteMessage(msg, peerPtr); });
   newPeer->start();
 
   {
     std::lock_guard<std::mutex> lock(m_peerMutex);
-    m_peers.push_back(newPeer);
+    m_peers.push_back(std::move(newPeer));
   }
   Logger::Log(Logger::Type::Info, "Connected to Peer: " + address);
 }
 
 void GlobalBroker::removePeer(GrpcWorker* peer) {
   std::lock_guard<std::mutex> lock(m_peerMutex);
-  auto it = std::find(m_peers.begin(), m_peers.end(), peer);
+  auto it = std::find_if(m_peers.begin(), m_peers.end(), [peer](const std::unique_ptr<GrpcWorker>& p) { return p.get() == peer; });
   if (it != m_peers.end()) {
+    (*it)->stop();
     m_peers.erase(it);
-    peer->stop();
-    delete peer;
     Logger::Log(Logger::Type::Info, "Peer disconnected and removed");
   }
 }
@@ -164,7 +165,8 @@ GlobalBroker::~GlobalBroker() {
   }
 
   std::lock_guard<std::mutex> lock(m_peerMutex);
-  for (GrpcWorker* peer : m_peers) {
+  for (const auto& peerPtr : m_peers) {
+    GrpcWorker* peer = peerPtr.get();
     peer->stop();
     delete peer;
   }
