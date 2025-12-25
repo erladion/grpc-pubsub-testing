@@ -37,6 +37,9 @@ typedef struct {
   CompressionAlgorithm compression_algorithm;
 } GrpcConfig;
 
+#define GRPC_CONFIG_DEFAULT \
+  { .address = NULL, .client_id = NULL, .keepalive_time_ms = 10000, .keepalive_timeout_ms = 5000, .compression_algorithm = COMPRESS_GZIP }
+
 typedef void (*GrpcMessageCallback)(const char* topic, const char* data, int len, void* userData);
 typedef void (*GrpcFileCallback)(const char* topic, const char* filepath, void* userData);
 typedef void (*GrpcStatusCallback)(GrpcConnectionStatus status, void* userData);

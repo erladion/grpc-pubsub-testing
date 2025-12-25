@@ -52,7 +52,7 @@ void on_message(const char* topic, const char* data, int len, void* ctx) {
 int main() {
   setvbuf(stdout, NULL, _IONBF, 0);
 
-  GrpcConfig config;
+  GrpcConfig config = GRPC_CONFIG_DEFAULT;
   config.address = "127.0.0.1:50051";
   config.client_id = "c-client-1";
 
