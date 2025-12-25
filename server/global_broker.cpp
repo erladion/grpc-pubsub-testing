@@ -181,10 +181,16 @@ void GlobalBroker::StatsLoop() {
     const uint64_t bytesPerSec = m_stats.bytesThisInterval.exchange(0);
     const int currentClients = m_stats.activeClients.load();
 
+    int peerCount = 0;
+    {
+      std::lock_guard<std::mutex> lock(m_peerMutex);
+      peerCount = m_peers.size();
+    }
+
     const double kbSec = bytesPerSec / 1024.0;
 
     if (messagePerSec > 0 || currentClients > 0) {
-      Logger::Log(Logger::Type::Info, "[STATS] Clients: " + std::to_string(currentClients) + " | Peers: " + std::to_string(m_peers.size()) +
+      Logger::Log(Logger::Type::Info, "[STATS] Clients: " + std::to_string(currentClients) + " | Peers: " + std::to_string(peerCount) +
                                           " | MPS: " + std::to_string(messagePerSec) + " | Throughput: " + std::to_string(kbSec) + " KB/s");
     }
 
@@ -193,7 +199,7 @@ void GlobalBroker::StatsLoop() {
     ss << "\"type\":\"stats_update\",";
     ss << "\"broker_id\":\"" << m_brokerId << "\",";
     ss << "\"clients\":" << currentClients << ",";
-    ss << "\"peers_count\":" << m_peers.size() << ",";
+    ss << "\"peers_count\":" << peerCount << ",";
     ss << "\"msgs_per_sec\":" << messagePerSec << ",";
     ss << "\"kb_per_sec\":" << kbSec << ",";
     ss << "\"total_msgs\":" << m_stats.totalMessagesProcessed.load() << ",";
