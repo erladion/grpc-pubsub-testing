@@ -96,7 +96,10 @@ void CallData::handleRead(bool ok) {
   }
 
   if (!checkRateLimit()) {
-    Logger::Log(Logger::Type::Error, "Rate limit exceeded for " + m_clientId + ". Ignoring message.");
+    if (m_msgCountInterval == MAX_MSGS_PER_SEC + 1) {
+      Logger::Log(Logger::Type::Error, "Rate limit exceeded for " + m_clientId + ". Ignoring message.");
+    }
+
     Tag* tag = new Tag{shared_from_this(), READ};
     m_stream.Read(&m_incomingMessage, tag);
     return;
