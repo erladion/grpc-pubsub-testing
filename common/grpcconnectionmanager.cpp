@@ -233,7 +233,13 @@ void GrpcConnectionManager::handleMessage(const broker::BrokerPayload& msg) {
   }
 
   for (auto& callback : callbacks) {
-    callback(data);
+    try {
+      callback(data);
+    } catch (const std::exception& e) {
+      std::cerr << "[Manager] User Callback Exception: " << e.what() << std::endl;
+    } catch (...) {
+      std::cerr << "[Manager] Unknown Exception in User Callback" << std::endl;
+    }
   }
 }
 
