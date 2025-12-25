@@ -1,5 +1,6 @@
 #include "monitorwindow.h"
 
+#include <QDebug>
 #include <QGroupBox>
 #include <QHBoxLayout>
 #include <QJsonDocument>
@@ -18,6 +19,9 @@ MonitorWindow::MonitorWindow(QWidget* parent) : QMainWindow(parent) {
 
   GrpcConnectionManager::registerCallback("__SYS_STATS__", [this](const std::string& data) {
     QJsonDocument doc = QJsonDocument::fromJson(QString::fromStdString(data).toUtf8());
+
+    qWarning() << doc;
+
     if (doc.isObject()) {
       // Marshall to Main Thread for UI updates
       QMetaObject::invokeMethod(this, [this, doc]() { updateStats(doc.object()); });

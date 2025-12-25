@@ -185,12 +185,41 @@ void GlobalBroker::StatsLoop() {
     ss << "{";
     ss << "\"type\":\"stats_update\",";
     ss << "\"broker_id\":\"" << m_brokerId << "\",";
-    ss << "\"clients\":" << clients << ",";
+    ss << "\"clients\":" << currentClients << ",";
     ss << "\"peers_count\":" << m_peers.size() << ",";
     ss << "\"msgs_per_sec\":" << messagePerSec << ",";
     ss << "\"kb_per_sec\":" << kbSec << ",";
     ss << "\"total_msgs\":" << m_stats.totalMessagesProcessed.load() << ",";
     ss << "\"uptime_sec\":0";
+
+    ss << ", \"connected_clients\": [";
+
+    {
+      std::shared_lock<std::shared_mutex> lock(m_clientMutex);
+      bool firstClient = true;
+      for (const auto& client : m_clients) {
+        if (!firstClient)
+          ss << ",";
+        firstClient = false;
+
+        ss << "{";
+        ss << "\"id\": \"" << client->clientId() << "\",";
+        ss << "\"subscriptions\": [";
+
+        std::vector<std::string> subs = client->getSubscriptions();
+        bool firstSub = true;
+        for (const auto& topic : subs) {
+          if (!firstSub)
+            ss << ",";
+          firstSub = false;
+          ss << "\"" << topic << "\"";
+        }
+        ss << "]";
+        ss << "}";
+      }
+    }
+
+    ss << "]";
     ss << "}";
 
     broker::BrokerPayload msg;

@@ -46,6 +46,9 @@ public:
 
   void asyncSend(std::shared_ptr<broker::BrokerPayload> msg);
 
+  std::string clientId() { return m_clientId; }
+  std::vector<std::string> getSubscriptions();
+
 private:
   CallData(broker::BrokerService::AsyncService* service, ServerCompletionQueue* cq);
 

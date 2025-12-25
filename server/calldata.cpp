@@ -59,6 +59,11 @@ void CallData::asyncSend(std::shared_ptr<broker::BrokerPayload> msg) {
   }
 }
 
+std::vector<std::string> CallData::getSubscriptions() {
+  std::lock_guard<std::mutex> lock(m_subscriptionMutex);
+  return std::vector<std::string>(m_subscriptions.begin(), m_subscriptions.end());
+}
+
 bool CallData::checkRateLimit() {
   auto now = Clock::now();
   auto diff = std::chrono::duration_cast<std::chrono::milliseconds>(now - m_lastRateCheck).count();
