@@ -2,7 +2,7 @@
 #include <chrono>
 #include <iostream>
 
-GrpcWorker::GrpcWorker(const WorkerConfig& config, SafeQueue<broker::BrokerPayload>* inboundQueue, StatusCallback callback)
+GrpcWorker::GrpcWorker(const ConnectionConfig& config, SafeQueue<broker::BrokerPayload>* inboundQueue, StatusCallback callback)
     : m_config(config), m_inboundQueue(inboundQueue), m_statusCallback(callback), m_running(false) {}
 
 GrpcWorker::~GrpcWorker() {
@@ -10,6 +10,7 @@ GrpcWorker::~GrpcWorker() {
 }
 
 void GrpcWorker::setMessageCallback(MessageCallback callback) {
+  std::lock_guard<std::mutex> lock(m_callbackMutex);
   m_messageCallback = callback;
 }
 
@@ -40,7 +41,7 @@ void GrpcWorker::run() {
   args.SetInt(GRPC_ARG_MAX_RECEIVE_MESSAGE_LENGTH, 50 * 1024 * 1024);
   args.SetInt(GRPC_ARG_MAX_SEND_MESSAGE_LENGTH, 50 * 1024 * 1024);
 
-  m_channel = grpc::CreateCustomChannel(m_config.targetAddress, grpc::InsecureChannelCredentials(), args);
+  m_channel = grpc::CreateCustomChannel(m_config.address, grpc::InsecureChannelCredentials(), args);
   m_stub = broker::BrokerService::NewStub(m_channel);
 
   while (m_running) {
@@ -72,8 +73,11 @@ void GrpcWorker::run() {
     while (m_running && m_stream->Read(&incoming)) {
       if (m_inboundQueue) {
         m_inboundQueue->push(incoming);
-      } else if (m_messageCallback) {
-        m_messageCallback(incoming);
+      } else {
+        if (m_messageCallback) {
+          std::lock_guard<std::mutex> lock(m_callbackMutex);
+          m_messageCallback(incoming);
+        }
       }
     }
 

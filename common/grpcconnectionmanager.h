@@ -31,7 +31,7 @@ struct FileTransferState {
 
 class GrpcConnectionManager {
 public:
-  static void init(const std::string& clientId, const std::string& address = "127.0.0.1:50051");
+  static void init(const ConnectionConfig& config);
   static void shutdown();
   static GrpcConnectionManager& instance();
 
@@ -83,7 +83,7 @@ public:
   }
 
 private:
-  GrpcConnectionManager(const std::string& address, const std::string& clientId);
+  GrpcConnectionManager(const ConnectionConfig& config);
   ~GrpcConnectionManager();
 
   void registerInternal(const std::string& key, MessageCallback callback);

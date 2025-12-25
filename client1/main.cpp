@@ -11,7 +11,11 @@
 int main(int argc, char* argv[]) {
   QCoreApplication a(argc, argv);
 
-  GrpcConnectionManager::init("client1", "unix:///tmp/broker.sock");
+  ConnectionConfig config;
+  config.address = "unix:///tmp/broker.sock";
+  config.clientId = "client1";
+
+  GrpcConnectionManager::init(config);
 
   GrpcConnectionManager::registerCallback<communication::Update>("test", [](const communication::Update& message) {
     qDebug() << QString::fromStdString(message.message());

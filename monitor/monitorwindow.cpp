@@ -11,10 +11,11 @@
 MonitorWindow::MonitorWindow(QWidget* parent) : QMainWindow(parent) {
   setupUi();
 
-  // 1. Connect to the Broker (Localhost or Remote)
-  GrpcConnectionManager::init("monitor", "127.0.0.1:50051");
+  ConnectionConfig config;
+  config.clientId = "monitor";
 
-  // 2. Subscribe to the System Stats topic
+  GrpcConnectionManager::init(config);
+
   GrpcConnectionManager::registerCallback("__SYS_STATS__", [this](const std::string& data) {
     QJsonDocument doc = QJsonDocument::fromJson(QString::fromStdString(data).toUtf8());
     if (doc.isObject()) {
@@ -25,12 +26,10 @@ MonitorWindow::MonitorWindow(QWidget* parent) : QMainWindow(parent) {
 }
 
 void MonitorWindow::updateStats(const QJsonObject& json) {
-  // Update Labels
   m_lblClients->setText(QString::number(json["clients"].toInt()));
   m_lblPeers->setText(QString::number(json["peers_count"].toInt()));
   m_lblTotal->setText(QString::number(json["total_msgs"].toVariant().toLongLong()));
 
-  // Update Chart
   double mps = json["msgs_per_sec"].toDouble();
   double kbps = json["kb_per_sec"].toDouble();
 

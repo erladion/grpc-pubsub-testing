@@ -1,5 +1,7 @@
 #include "grpcconnectionapi.h"
+
 #include <cstring>
+
 #include "grpcconnectionmanager.h"
 
 int initConnection(const GrpcConfig* config) {
@@ -7,8 +9,14 @@ int initConnection(const GrpcConfig* config) {
     return GRPC_ERROR_INVALID_ARGS;
   }
 
-  std::string id = config->client_id ? config->client_id : "UnknownClient";
-  GrpcConnectionManager::init(id, config->address);
+  ConnectionConfig cfg;
+  cfg.address = config->address;
+  cfg.clientId = config->client_id ? config->client_id : "UnknownClient";
+  cfg.keepAliveTime = config->keepalive_time_ms;
+  cfg.keepAliveTimeout = config->keepalive_timeout_ms;
+  cfg.compressionAlgo = config->compression_algorithm;
+
+  GrpcConnectionManager::init(cfg);
 
   return GRPC_SUCCESS;
 }

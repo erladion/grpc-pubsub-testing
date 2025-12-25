@@ -99,8 +99,8 @@ void GlobalBroker::Broadcast(const broker::BrokerPayload& msg, CallData* sender,
   }
 
   for (auto& client : targets) {
-    if (client->IsSubscribed(sharedMsg->topic())) {
-      client->AsyncSend(sharedMsg);
+    if (client->isSubscribed(sharedMsg->topic())) {
+      client->asyncSend(sharedMsg);
     }
   }
 
@@ -117,8 +117,9 @@ void GlobalBroker::Broadcast(const broker::BrokerPayload& msg, CallData* sender,
 }
 
 void GlobalBroker::connectToPeer(const std::string& address) {
-  WorkerConfig config;
-  config.targetAddress = address;
+  ConnectionConfig config;
+  config.address = address;
+  config.clientId = "BrokerPeer";
   config.compressionAlgo = 2;  // GZIP
   config.keepAliveTime = 10000;
   config.keepAliveTimeout = 5000;
@@ -184,7 +185,7 @@ void GlobalBroker::StatsLoop() {
     ss << "{";
     ss << "\"type\":\"stats_update\",";
     ss << "\"broker_id\":\"" << m_brokerId << "\",";
-    ss << "\"clients\":" << currentClients << ",";
+    ss << "\"clients\":" << clients << ",";
     ss << "\"peers_count\":" << m_peers.size() << ",";
     ss << "\"msgs_per_sec\":" << messagePerSec << ",";
     ss << "\"kb_per_sec\":" << kbSec << ",";

@@ -37,7 +37,7 @@ class CallData : public std::enable_shared_from_this<CallData> {
 public:
   static void create(broker::BrokerService::AsyncService* service, grpc::ServerCompletionQueue* cq) {
     auto client = std::shared_ptr<CallData>(new CallData(service, cq));
-    client->Start();
+    client->start();
   }
 
   bool isSubscribed(const std::string& key);

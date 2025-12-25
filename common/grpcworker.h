@@ -12,11 +12,12 @@
 #include "protobuf_forward.h"
 #include "safequeue.h"
 
-struct WorkerConfig {
-  std::string targetAddress;
-  int compressionAlgo = 2;  // Default GZIP
+struct ConnectionConfig {
+  std::string address{"127.0.0.1:50051"};
+  std::string clientId;
   int keepAliveTime = 10000;
   int keepAliveTimeout = 5000;
+  int compressionAlgo = 2;  // GZIP
 };
 
 class GrpcWorker {
@@ -24,7 +25,7 @@ public:
   using StatusCallback = std::function<void(bool)>;
   using MessageCallback = std::function<void(const broker::BrokerPayload&)>;
 
-  explicit GrpcWorker(const WorkerConfig& config, SafeQueue<broker::BrokerPayload>* inboundQueue, StatusCallback callback);
+  explicit GrpcWorker(const ConnectionConfig& config, SafeQueue<broker::BrokerPayload>* inboundQueue, StatusCallback callback);
 
   virtual ~GrpcWorker();
 
@@ -37,9 +38,11 @@ protected:
   void run();
 
 private:
-  WorkerConfig m_config;
+  ConnectionConfig m_config;
   SafeQueue<broker::BrokerPayload>* m_inboundQueue;
   StatusCallback m_statusCallback;
+
+  std::mutex m_callbackMutex;
   MessageCallback m_messageCallback;
 
   std::atomic<bool> m_running;

@@ -43,10 +43,10 @@ static std::string generateUUID() {
   return ss.str();
 }
 
-void GrpcConnectionManager::init(const std::string& clientId, const std::string& address) {
+void GrpcConnectionManager::init(const ConnectionConfig& config) {
   std::lock_guard<std::mutex> lock(m_initMutex);
   if (!m_instance) {
-    m_instance = new GrpcConnectionManager(address, clientId);
+    m_instance = new GrpcConnectionManager(config);
 
     for (auto& p : s_pendingMsgCallbacks) {
       m_instance->registerInternal(p.first, p.second);
@@ -119,10 +119,7 @@ void GrpcConnectionManager::registerStatusCallback(StatusCallback callback) {
   }
 }
 
-GrpcConnectionManager::GrpcConnectionManager(const std::string& address, const std::string& clientId) : m_clientId(clientId), m_running(true) {
-  WorkerConfig config;
-  config.targetAddress = address;
-
+GrpcConnectionManager::GrpcConnectionManager(const ConnectionConfig& config) : m_clientId(config.clientId), m_running(true) {
   m_worker = new GrpcWorker(config, &m_queue, [this](bool connected) {
     std::lock_guard<std::mutex> lock(m_mapMutex);
     std::cout << "[Client] Connection Status: " << (connected ? "ONLINE" : "OFFLINE") << std::endl;

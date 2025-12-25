@@ -13,7 +13,10 @@
 int main(int argc, char* argv[]) {
   QCoreApplication a(argc, argv);
 
-  GrpcConnectionManager::init("client2");
+  ConnectionConfig config;
+  config.clientId = "client2";
+
+  GrpcConnectionManager::init(config);
 
   GrpcConnectionManager::registerCallback<communication::Update>("MessageReceived",
                                                                  [](const communication::Update& message) { qDebug() << "Got return message"; });
