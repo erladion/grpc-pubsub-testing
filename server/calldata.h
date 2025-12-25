@@ -35,30 +35,30 @@ class CallData : public std::enable_shared_from_this<CallData> {
   const int MAX_MSGS_PER_SEC = 2000;
 
 public:
-  static void Create(broker::BrokerService::AsyncService* service, grpc::ServerCompletionQueue* cq) {
+  static void create(broker::BrokerService::AsyncService* service, grpc::ServerCompletionQueue* cq) {
     auto client = std::shared_ptr<CallData>(new CallData(service, cq));
     client->Start();
   }
 
-  bool IsSubscribed(const std::string& key);
+  bool isSubscribed(const std::string& key);
 
-  void Proceed(Tag* tag, bool ok);
+  void proceed(Tag* tag, bool ok);
 
-  void AsyncSend(std::shared_ptr<broker::BrokerPayload> msg);
+  void asyncSend(std::shared_ptr<broker::BrokerPayload> msg);
 
 private:
   CallData(broker::BrokerService::AsyncService* service, ServerCompletionQueue* cq);
 
-  bool CheckRateLimit();
+  bool checkRateLimit();
 
-  void Start();
-  void HandleConnect(bool ok);
-  void HandleRead(bool ok);
-  void HandleWrite(bool ok);
+  void start();
+  void handleConnect(bool ok);
+  void handleRead(bool ok);
+  void handleWrite(bool ok);
 
-  void WriteNextItem();
+  void writeNextItem();
 
-  void Stop();
+  void stop();
 
 private:
   broker::BrokerService::AsyncService* m_pService;

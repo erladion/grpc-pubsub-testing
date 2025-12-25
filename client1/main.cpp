@@ -1,5 +1,4 @@
 #include <QCoreApplication>
-
 #include <QDateTime>
 
 #include "grpcconnectionmanager.h"
@@ -12,7 +11,7 @@
 int main(int argc, char* argv[]) {
   QCoreApplication a(argc, argv);
 
-  GrpcConnectionManager::init("unix:///tmp/broker.sock");
+  GrpcConnectionManager::init("client1", "unix:///tmp/broker.sock");
 
   GrpcConnectionManager::registerCallback<communication::Update>("test", [](const communication::Update& message) {
     qDebug() << QString::fromStdString(message.message());
@@ -27,7 +26,7 @@ int main(int argc, char* argv[]) {
     GrpcConnectionManager::sendMessage("MessageReceived", update);
   });
 
-  GrpcConnectionManager::registerFileCallback("file", [](const QString& path) { qWarning() << "Received file at path:" << path; });
+  GrpcConnectionManager::registerFileCallback("file", [](const std::string& path) { qWarning() << "Received file at path:" << path; });
 
   return a.exec();
 }

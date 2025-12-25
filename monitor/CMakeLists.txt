@@ -7,6 +7,7 @@ add_executable(monitor main.cpp
 target_link_libraries(
     monitor PRIVATE
     GrpcLib
+    Qt${QT_VERSION_MAJOR}::Core
     Qt${QT_VERSION_MAJOR}::Gui
     Qt${QT_VERSION_MAJOR}::Widgets
 )

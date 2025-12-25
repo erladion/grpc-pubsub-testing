@@ -7,17 +7,17 @@ CallData::CallData(broker::BrokerService::AsyncService* service, ServerCompletio
   m_lastRateCheck = std::chrono::steady_clock::now();
 }
 
-void CallData::Start() {
+void CallData::start() {
   Tag* tag = new Tag{shared_from_this(), CONNECT};
   m_pService->RequestMessageStream(&m_serverContext, &m_stream, m_pCompletionQueue, m_pCompletionQueue, tag);
 }
 
-bool CallData::IsSubscribed(const std::string& key) {
+bool CallData::isSubscribed(const std::string& key) {
   std::lock_guard<std::mutex> lock(m_subscriptionMutex);
   return m_subscriptions.find(key) != m_subscriptions.end();
 }
 
-void CallData::Proceed(Tag* tag, bool ok) {
+void CallData::proceed(Tag* tag, bool ok) {
   std::unique_ptr<Tag> tagGuard(tag);
 
   if (m_dying) {
@@ -26,18 +26,18 @@ void CallData::Proceed(Tag* tag, bool ok) {
 
   switch (tag->type) {
     case CONNECT:
-      HandleConnect(ok);
+      handleConnect(ok);
       break;
     case READ:
-      HandleRead(ok);
+      handleRead(ok);
       break;
     case WRITE:
-      HandleWrite(ok);
+      handleWrite(ok);
       break;
   }
 }
 
-void CallData::AsyncSend(std::shared_ptr<broker::BrokerPayload> msg) {
+void CallData::asyncSend(std::shared_ptr<broker::BrokerPayload> msg) {
   std::lock_guard<std::mutex> lock(m_queueMutex);
 
   if (m_dying) {
@@ -47,7 +47,7 @@ void CallData::AsyncSend(std::shared_ptr<broker::BrokerPayload> msg) {
   if (m_currentQueueBytes > MAX_QUEUE_BYTES) {
     Logger::Log(Logger::Type::Error, "Client" + m_clientId + " is too slow. Dropping message.");
 
-    Stop();
+    stop();
     return;
   }
 
@@ -55,11 +55,11 @@ void CallData::AsyncSend(std::shared_ptr<broker::BrokerPayload> msg) {
   m_currentQueueBytes += msg->ByteSizeLong();
 
   if (!m_writeInProgress) {
-    WriteNextItem();
+    writeNextItem();
   }
 }
 
-bool CallData::CheckRateLimit() {
+bool CallData::checkRateLimit() {
   auto now = Clock::now();
   auto diff = std::chrono::duration_cast<std::chrono::milliseconds>(now - m_lastRateCheck).count();
   if (diff > 1000) {
@@ -70,12 +70,12 @@ bool CallData::CheckRateLimit() {
   return m_msgCountInterval <= MAX_MSGS_PER_SEC;
 }
 
-void CallData::HandleConnect(bool ok) {
+void CallData::handleConnect(bool ok) {
   if (!ok) {
     return;
   }
 
-  CallData::Create(m_pService, m_pCompletionQueue);
+  CallData::create(m_pService, m_pCompletionQueue);
   GlobalBroker::instance().Register(shared_from_this());
 
   Logger::Log(Logger::Type::Info, "New Client Connection Established");
@@ -84,13 +84,13 @@ void CallData::HandleConnect(bool ok) {
   m_stream.Read(&m_incomingMessage, tag);
 }
 
-void CallData::HandleRead(bool ok) {
+void CallData::handleRead(bool ok) {
   if (!ok) {
-    Stop();
+    stop();
     return;
   }
 
-  if (!CheckRateLimit()) {
+  if (!checkRateLimit()) {
     Logger::Log(Logger::Type::Error, "Rate limit exceeded for " + m_clientId + ". Ignoring message.");
     Tag* tag = new Tag{shared_from_this(), READ};
     m_stream.Read(&m_incomingMessage, tag);
@@ -106,10 +106,11 @@ void CallData::HandleRead(bool ok) {
       Logger::Log(Logger::Type::Info, "Handshake successful for client: " + m_clientId);
     } else {
       Logger::Log(Logger::Type::Error, "Client attempted data transfer before handshake.");
-      Stop();
+      stop();
       return;
     }
   }
+
   if (key == "__SUBSCRIBE__") {
     if (!m_incomingMessage.sender_id().empty()) {
       m_clientId = m_incomingMessage.sender_id();
@@ -136,21 +137,21 @@ void CallData::HandleRead(bool ok) {
   m_stream.Read(&m_incomingMessage, tag);
 }
 
-void CallData::HandleWrite(bool ok) {
+void CallData::handleWrite(bool ok) {
   std::lock_guard<std::mutex> lock(m_queueMutex);
   m_writeInProgress = false;
 
   if (!ok) {
-    Stop();
+    stop();
     return;
   }
 
   if (!m_writeQueue.empty()) {
-    WriteNextItem();
+    writeNextItem();
   }
 }
 
-void CallData::WriteNextItem() {
+void CallData::writeNextItem() {
   if (m_writeQueue.empty()) {
     return;
   }
@@ -175,7 +176,7 @@ void CallData::WriteNextItem() {
   m_stream.Write(*m_currentWriteMessagePtr, tag);
 }
 
-void CallData::Stop() {
+void CallData::stop() {
   if (m_dying) {
     return;
   }

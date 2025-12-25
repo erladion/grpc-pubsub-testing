@@ -1,53 +1,51 @@
 #include "grpcworker.h"
-
-#include <QDebug>
 #include <chrono>
+#include <iostream>
 
-GrpcWorker::GrpcWorker(const WorkerConfig& config, QObject* parent) : QThread(parent), m_config(config), m_running(true) {
-  qRegisterMetaType<broker::BrokerPayload>();
-}
+GrpcWorker::GrpcWorker(const WorkerConfig& config, SafeQueue<broker::BrokerPayload>* inboundQueue, StatusCallback callback)
+    : m_config(config), m_inboundQueue(inboundQueue), m_statusCallback(callback), m_running(false) {}
 
 GrpcWorker::~GrpcWorker() {
   stop();
-  wait();
+}
+
+void GrpcWorker::setMessageCallback(MessageCallback callback) {
+  m_messageCallback = callback;
+}
+
+void GrpcWorker::start() {
+  m_running = true;
+  m_workerThread = std::thread(&GrpcWorker::run, this);
 }
 
 void GrpcWorker::stop() {
   m_running = false;
-
   {
-    QMutexLocker lock(&m_streamMutex);
+    std::lock_guard<std::mutex> lock(m_streamMutex);
     if (m_context) {
       m_context->TryCancel();
     }
   }
-
-  m_sleepCv.notify_all();
-}
-
-bool GrpcWorker::responsiveSleep(int milliseconds) {
-  std::unique_lock<std::mutex> lock(m_sleepMutex);
-  return !m_sleepCv.wait_for(lock, std::chrono::milliseconds(milliseconds), [this] { return !m_running; });
+  if (m_workerThread.joinable()) {
+    m_workerThread.join();
+  }
 }
 
 void GrpcWorker::run() {
   grpc::ChannelArguments args;
-
   args.SetInt(GRPC_ARG_KEEPALIVE_TIME_MS, m_config.keepAliveTime);
   args.SetInt(GRPC_ARG_KEEPALIVE_TIMEOUT_MS, m_config.keepAliveTimeout);
-
   args.SetInt(GRPC_ARG_HTTP2_MAX_PINGS_WITHOUT_DATA, 0);
   args.SetInt(GRPC_ARG_KEEPALIVE_PERMIT_WITHOUT_CALLS, 1);
   args.SetInt(GRPC_ARG_MAX_RECEIVE_MESSAGE_LENGTH, 50 * 1024 * 1024);
   args.SetInt(GRPC_ARG_MAX_SEND_MESSAGE_LENGTH, 50 * 1024 * 1024);
 
-  m_channel = grpc::CreateCustomChannel(m_config.targetAddress.toStdString(), grpc::InsecureChannelCredentials(), args);
+  m_channel = grpc::CreateCustomChannel(m_config.targetAddress, grpc::InsecureChannelCredentials(), args);
   m_stub = broker::BrokerService::NewStub(m_channel);
 
   while (m_running) {
     if (m_channel->GetState(true) != GRPC_CHANNEL_READY) {
-      if (!responsiveSleep(3000))
-        break;
+      std::this_thread::sleep_for(std::chrono::milliseconds(1000));
       continue;
     }
 
@@ -55,60 +53,56 @@ void GrpcWorker::run() {
     newContext->set_compression_algorithm(static_cast<grpc_compression_algorithm>(m_config.compressionAlgo));
 
     auto newStream = m_stub->MessageStream(newContext.get());
-
     if (!newStream) {
-      if (!responsiveSleep(3000))
-        break;
+      std::this_thread::sleep_for(std::chrono::milliseconds(3000));
       continue;
     }
 
     {
-      QMutexLocker lock(&m_streamMutex);
+      std::lock_guard<std::mutex> lock(m_streamMutex);
       m_context = newContext;
       m_stream = std::move(newStream);
     }
 
-    qDebug() << "gRPC Stream Connected to" << m_config.targetAddress;
-    emit connected();
+    if (m_statusCallback) {
+      m_statusCallback(true);
+    }
 
-    broker::BrokerPayload incomingMsg;
+    broker::BrokerPayload incoming;
+    while (m_running && m_stream->Read(&incoming)) {
+      if (m_inboundQueue) {
+        m_inboundQueue->push(incoming);
+      } else if (m_messageCallback) {
+        m_messageCallback(incoming);
+      }
+    }
 
-    while (m_running && m_stream->Read(&incomingMsg)) {
-      emit envelopeReceived(incomingMsg);
+    if (m_statusCallback) {
+      m_statusCallback(false);
+    }
+
+    {
+      std::lock_guard<std::mutex> lock(m_streamMutex);
+      m_context.reset();
+      m_stream.reset();
     }
 
     if (m_running) {
-      qWarning() << "Disconnected from Broker. Attempting reconnect in 3s...";
-      emit disconnected();
-
-      {
-        QMutexLocker lock(&m_streamMutex);
-        m_context.reset();
-        m_stream.reset();
-      }
-
-      if (!responsiveSleep(3000))
-        break;
+      std::this_thread::sleep_for(std::chrono::milliseconds(3000));
     }
   }
-
-  QMutexLocker lock(&m_streamMutex);
-  m_stream.reset();
-  m_context.reset();
 }
 
 bool GrpcWorker::writeMessage(const broker::BrokerPayload& msg) {
-  QMutexLocker lock(&m_streamMutex);
-  if (m_stream) {
-    grpc::WriteOptions options;
-    if (msg.payload().ByteSizeLong() <= 1024)
-      options.set_no_compression();
-
-    if (!m_stream->Write(msg, options)) {
-      qWarning() << "Failed to write message to gRPC stream.";
-      return false;
-    }
-    return true;
+  std::lock_guard<std::mutex> lock(m_streamMutex);
+  if (!m_stream) {
+    return false;
   }
-  return false;
+
+  grpc::WriteOptions options;
+  if (msg.raw_data().size() <= 1024) {
+    options.set_no_compression();
+  }
+
+  return m_stream->Write(msg, options);
 }

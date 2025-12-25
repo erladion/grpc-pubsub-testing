@@ -1,139 +1,135 @@
-#pragma once
+#ifndef GRPCCONNECTIONMANAGER_H
+#define GRPCCONNECTIONMANAGER_H
 
-#include <QByteArray>
-#include <QCryptographicHash>
-#include <QDebug>
-#include <QFile>
-#include <QHash>
-#include <QMap>
-#include <QMutex>
-#include <QObject>
-#include <QTimer>
-#include <QtConcurrent/QtConcurrent>
+#include <fstream>
 #include <functional>
+#include <iostream>
+#include <map>
+#include <mutex>
+#include <string>
+#include <type_traits>
+#include <vector>
 
-#include <google/protobuf/any.h>
+#include <google/protobuf/any.pb.h>
 #include <google/protobuf/message.h>
 
 #include "grpcworker.h"
-#include "protobuf_forward.h"
+#include "safequeue.h"
 
-using MessageCallback = std::function<void(const QByteArray&)>;
-using FileCallback = std::function<void(const QString&)>;
+using MessageCallback = std::function<void(const std::string&)>;
+using FileCallback = std::function<void(const std::string&)>;
 using StatusCallback = std::function<void(bool)>;
 
-struct IncomingTransfer {
-  QString originalTopic;
-  QString intendedFilename;
-  int totalChunks = 0;
-  int receivedChunks = 0;
-  QFile* tempFile = nullptr;
-  QString tempFilePath;
-  QCryptographicHash* hasher = nullptr;
-  qint64 lastUpdateTimestamp = 0;
+struct FileTransferState {
+  std::ofstream fileHandle;
+  std::string destFilename;
+  std::string tempPath;
+  std::string originalTopic;
+  size_t totalSize;
+  size_t receivedSize;
 };
 
-class GrpcConnectionManager : public QObject {
-  Q_OBJECT
+class GrpcConnectionManager {
 public:
-  static void init(const QString& address = "127.0.0.1:50051", int compressionAlgo = 2, int keepAliveTime = 10000, int keepAliveTimeout = 5000);
-
+  static void init(const std::string& clientId, const std::string& address = "127.0.0.1:50051");
   static void shutdown();
+  static GrpcConnectionManager& instance();
 
-  static bool sendMessage(const QString& key, const QString& message);
-  static bool sendData(const QString& key, const QByteArray& data);
-  static bool sendDataRaw(const QString& key, const char* data, int len);
-  static bool sendFile(const QString& key, const QString& filePath);
+  static bool sendMessage(const std::string& key, const std::string& message);
+  static bool sendData(const std::string& key, const std::string_view& data);
+  static bool sendDataRaw(const std::string& key, const char* data, int len);
+  static bool sendFile(const std::string& key, const std::string& filepath);
 
   template <typename T>
-  static typename std::enable_if<std::is_base_of<google::protobuf::Message, T>::value>::type sendMessage(const QString& key,
-                                                                                                         const T& protobufMessage) {
-    instance().sendMessageInternal(key, protobufMessage);
+  static typename std::enable_if<std::is_base_of<google::protobuf::Message, T>::value, bool>::type sendMessage(const std::string& key,
+                                                                                                               const T& protobufMessage) {
+    return instance().sendMessageInternal(key, protobufMessage);
   }
 
-  static void registerCallback(const QString& key, MessageCallback callback);
-  static void registerFileCallback(const QString& key, FileCallback callback);
+  static void registerCallback(const std::string& key, MessageCallback callback);
+  static void registerFileCallback(const std::string& key, FileCallback callback);
   static void registerStatusCallback(StatusCallback callback);
 
   template <typename T>
-  static void registerCallback(const QString& key, std::function<void(const T&)> callback) {
-    registerCallback(key, [callback, key](const QByteArray& rawData) {
+  static void registerCallback(const std::string& key, std::function<void(const T&)> callback) {
+    registerCallback(key, [callback, key](const std::string& rawData) {
       T typedMsg;
       if (tryUnpack(rawData, typedMsg)) {
         callback(typedMsg);
       } else {
-        qWarning() << "Failed to unpack message for key:" << key;
+        std::cerr << "[Warning] Failed to unpack message for key: " << key << std::endl;
       }
     });
   }
 
   template <typename T>
-  static bool tryUnpack(const QByteArray& raw, T& outMsg) {
+  static bool tryUnpack(const std::string& raw, T& outMsg) {
     google::protobuf::Any any;
-    if (any.ParseFromArray(raw.data(), raw.size())) {
+    if (any.ParseFromString(raw)) {
       if (any.Is<T>()) {
         return any.UnpackTo(&outMsg);
       }
       if (any.type_url().find('/') != std::string::npos) {
-        qDebug() << "Type Mismatch in Any Wrapper. Got:" << any.type_url().c_str();
-        return false;
+        // It is a mismatched Any.
+        // We could log here: "Type Mismatch in Any Wrapper"
       }
     }
+
     outMsg.Clear();
-    if (outMsg.ParseFromArray(raw.data(), raw.size())) {
+    if (outMsg.ParseFromString(raw)) {
       return true;
     }
     return false;
   }
 
 private:
-  static GrpcConnectionManager& instance();
+  GrpcConnectionManager(const std::string& address, const std::string& clientId);
+  ~GrpcConnectionManager();
 
-  void registerInternal(const QString& key, MessageCallback callback);
-  void registerFileInternal(const QString& key, FileCallback callback);
+  void registerInternal(const std::string& key, MessageCallback callback);
+  void registerFileInternal(const std::string& key, FileCallback callback);
 
-  bool sendDataInternal(const QString& key, const QByteArray& data);
-  bool sendDataRawInternal(const QString& key, const char* data, int len);
-  bool sendFileInternal(const QString& key, const QString& filePath);
+  bool sendDataInternal(const std::string& key, const std::string_view& data);
+  bool sendFileInternal(const std::string& key, const std::string& filePath);
   bool sendRawEnvelope(const broker::BrokerPayload& envelope);
 
   template <typename T>
-  void sendMessageInternal(const QString& key, const T& protobufMessage) {
+  bool sendMessageInternal(const std::string& key, const T& protobufMessage) {
     broker::BrokerPayload envelope;
-    envelope.set_handler_key(key.toStdString());
-    envelope.set_sender_id(m_appName);
-    envelope.set_topic(key.toStdString());
+    envelope.set_handler_key(key);
+    envelope.set_sender_id(m_clientId);
+    envelope.set_topic(key);
+
     envelope.mutable_payload()->PackFrom(protobufMessage);
-    sendRawEnvelope(envelope);
+
+    return sendRawEnvelope(envelope);
   }
 
-  explicit GrpcConnectionManager(const QString& address, int compressionAlgo, int kaTime, int kaTimeout);
-  ~GrpcConnectionManager();
-
-  GrpcConnectionManager(const GrpcConnectionManager&) = delete;
-  GrpcConnectionManager& operator=(const GrpcConnectionManager&) = delete;
-
-private slots:
-  void onEnvelopeReceived(const broker::BrokerPayload& msg);
-  void onCleanupTimer();
-  void onWorkerConnected();
-  void onWorkerDisconnected();
-
-  void processFilePayload(const QString& key, const QString& filePath);
-  void processPayload(const QString& key, const QByteArray& data);
+  void processingLoop();
+  void handleMessage(const broker::BrokerPayload& msg);
+  void handleFilePacket(const broker::BrokerPayload& msg);
 
 private:
-  GrpcWorker* m_pWorker;
+  static GrpcConnectionManager* m_instance;
+  static std::mutex m_initMutex;
 
-  QHash<QString, MessageCallback> m_byteHandlers;
-  QHash<QString, FileCallback> m_fileHandlers;
-  QVector<StatusCallback> m_statusCallbacks;
+  std::string m_clientId;
+  GrpcWorker* m_worker;
+  SafeQueue<broker::BrokerPayload> m_queue;
 
-  QHash<QString, IncomingTransfer> m_incomingTransfers;
+  std::thread m_processingThread;
+  std::atomic<bool> m_running;
 
-  QTimer* m_cleanupTimer;
-  QMutex m_mapMutex;
-  bool m_isConnected;
-  std::string m_appName;
-  static GrpcConnectionManager* m_pInstance;
+  std::mutex m_mapMutex;
+  std::map<std::string, std::vector<MessageCallback>> m_msgHandlers;
+  std::map<std::string, std::vector<FileCallback>> m_fileHandlers;
+  std::vector<StatusCallback> m_statusHandlers;
+
+  std::map<std::string, std::shared_ptr<FileTransferState>> m_transfers;
+
+  static std::vector<std::pair<std::string, MessageCallback>> s_pendingMsgCallbacks;
+  static std::vector<std::pair<std::string, FileCallback>> s_pendingFileCallbacks;
+  static std::vector<StatusCallback> s_pendingStatusCallbacks;
 };
+
+#endif  // GRPCCONNECTIONMANAGER_H

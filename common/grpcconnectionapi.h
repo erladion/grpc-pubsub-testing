@@ -37,20 +37,20 @@ typedef struct {
   CompressionAlgorithm compression_algorithm;
 } GrpcConfig;
 
-typedef void (*GrpcMessageCallback)(const char* topic, const char* data, int len, void* user_data);
-typedef void (*GrpcFileCallback)(const char* topic, const char* filepath, void* user_data);
-typedef void (*GrpcStatusCallback)(GrpcConnectionStatus status, void* user_data);
+typedef void (*GrpcMessageCallback)(const char* topic, const char* data, int len, void* userData);
+typedef void (*GrpcFileCallback)(const char* topic, const char* filepath, void* userData);
+typedef void (*GrpcStatusCallback)(GrpcConnectionStatus status, void* userData);
 
 GRPC_API int initConnection(const GrpcConfig* config);
 GRPC_API void shutdownConnection();
-GRPC_API void registerStatusCallback(GrpcStatusCallback cb, void* user_data);
+GRPC_API void registerStatusCallback(GrpcStatusCallback callback, void* userData);
 
 GRPC_API int sendData(const char* topic, const char* data, int len);
 GRPC_API int sendText(const char* topic, const char* text);
 GRPC_API int sendFile(const char* topic, const char* filepath);
 
-GRPC_API void registerCallback(const char* topic, GrpcMessageCallback cb, void* user_data);
-GRPC_API void registerFileCallback(const char* topic, GrpcFileCallback cb, void* user_data);
+GRPC_API void registerCallback(const char* topic, GrpcMessageCallback callback, void* userData);
+GRPC_API void registerFileCallback(const char* topic, GrpcFileCallback callback, void* userData);
 
 #ifdef __cplusplus
 }

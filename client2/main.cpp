@@ -13,14 +13,14 @@
 int main(int argc, char* argv[]) {
   QCoreApplication a(argc, argv);
 
-  GrpcConnectionManager::init();
+  GrpcConnectionManager::init("client2");
 
   GrpcConnectionManager::registerCallback<communication::Update>("MessageReceived",
                                                                  [](const communication::Update& message) { qDebug() << "Got return message"; });
 
-  GrpcConnectionManager::registerCallback("MessageReceived2", [](const QByteArray& data) {
+  GrpcConnectionManager::registerCallback("MessageReceived2", [](const std::string& data) {
     communication::Update msg;
-    if (msg.ParseFromArray(data.constData(), data.size())) {
+    if (msg.ParseFromArray(data.c_str(), data.size())) {
       qDebug() << "Received from C:" << msg.message().c_str();
     } else {
       qWarning() << "Failed to parse C message";
@@ -45,7 +45,7 @@ int main(int argc, char* argv[]) {
     update.set_message("Sending another message");
     update.set_timestamp_utc(QDateTime::currentMSecsSinceEpoch());
 
-    GrpcConnectionManager::sendData("test", QByteArray::fromStdString(update.SerializeAsString()));
+    GrpcConnectionManager::sendData("test", update.SerializeAsString());
   });
   tt.start(2500);
 

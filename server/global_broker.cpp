@@ -3,10 +3,34 @@
 #include "grpcworker.h"
 #include "safe_logger.h"
 
-#include <QJsonDocument>
-#include <QJsonObject>
-#include <QObject>
-#include <QUuid>
+#include <random>
+#include <sstream>
+
+static std::string generateUUID() {
+  static std::random_device rd;
+  static std::mt19937 gen(rd());
+  static std::uniform_int_distribution<> dis(0, 15);
+  static std::uniform_int_distribution<> dis2(8, 11);
+
+  std::stringstream ss;
+  ss << std::hex;
+  for (int i = 0; i < 8; i++)
+    ss << dis(gen);
+  ss << "-";
+  for (int i = 0; i < 4; i++)
+    ss << dis(gen);
+  ss << "-4";  // UUID version 4
+  for (int i = 0; i < 3; i++)
+    ss << dis(gen);
+  ss << "-";
+  ss << dis2(gen);  // UUID variant
+  for (int i = 0; i < 3; i++)
+    ss << dis(gen);
+  ss << "-";
+  for (int i = 0; i < 12; i++)
+    ss << dis(gen);
+  return ss.str();
+}
 
 void GlobalBroker::Register(std::shared_ptr<CallData> client) {
   std::unique_lock<std::shared_mutex> lock(m_clientMutex);
@@ -25,7 +49,7 @@ void GlobalBroker::Broadcast(const broker::BrokerPayload& msg, CallData* sender,
 
   std::string uniqueId = forwardMsg.message_uuid();
   if (uniqueId.empty()) {
-    uniqueId = QUuid::createUuid().toString().toStdString();
+    uniqueId = generateUUID();
     forwardMsg.set_message_uuid(uniqueId);
   }
 
@@ -93,25 +117,21 @@ void GlobalBroker::Broadcast(const broker::BrokerPayload& msg, CallData* sender,
 }
 
 void GlobalBroker::connectToPeer(const std::string& address) {
-  const QString qtAddress = QString::fromStdString(address);
-
-  // Use WorkerConfig to match GrpcWorker constructor
   WorkerConfig config;
-  config.targetAddress = qtAddress;
+  config.targetAddress = address;
   config.compressionAlgo = 2;  // GZIP
   config.keepAliveTime = 10000;
   config.keepAliveTimeout = 5000;
 
-  GrpcWorker* newPeer = new GrpcWorker(config);
-
-  QObject::connect(newPeer, &GrpcWorker::envelopeReceived, [this, newPeer](broker::BrokerPayload msg) { this->injectRemoteMessage(msg, newPeer); });
-
+  GrpcWorker* newPeer = new GrpcWorker(config, nullptr, nullptr);
+  newPeer->setMessageCallback([this, newPeer](const broker::BrokerPayload& msg) { this->injectRemoteMessage(msg, newPeer); });
   newPeer->start();
 
   {
     std::lock_guard<std::mutex> lock(m_peerMutex);
     m_peers.push_back(newPeer);
   }
+  Logger::Log(Logger::Type::Info, "Connected to Peer: " + address);
 }
 
 void GlobalBroker::removePeer(GrpcWorker* peer) {
@@ -120,7 +140,7 @@ void GlobalBroker::removePeer(GrpcWorker* peer) {
   if (it != m_peers.end()) {
     m_peers.erase(it);
     peer->stop();
-    peer->deleteLater();
+    delete peer;
     Logger::Log(Logger::Type::Info, "Peer disconnected and removed");
   }
 }
@@ -140,7 +160,6 @@ GlobalBroker::~GlobalBroker() {
   std::lock_guard<std::mutex> lock(m_peerMutex);
   for (GrpcWorker* peer : m_peers) {
     peer->stop();
-    peer->wait();
     delete peer;
   }
   m_peers.clear();
@@ -161,25 +180,25 @@ void GlobalBroker::StatsLoop() {
                                           " | MPS: " + std::to_string(messagePerSec) + " | Throughput: " + std::to_string(kbSec) + " KB/s");
     }
 
-    QJsonObject stats;
-    stats["type"] = "stats_update";
-    stats["broker_id"] = QString::fromStdString(m_brokerId);
-    stats["clients"] = currentClients;
-    stats["peers_count"] = (int)m_peers.size();
-    stats["msgs_per_sec"] = (qint64)messagePerSec;
-    stats["kb_per_sec"] = kbSec;
-    stats["total_msgs"] = (qint64)m_stats.totalMessagesProcessed.load();
-    stats["uptime_sec"] = 0;
-
-    QByteArray payload = QJsonDocument(stats).toJson(QJsonDocument::Compact);
+    std::stringstream ss;
+    ss << "{";
+    ss << "\"type\":\"stats_update\",";
+    ss << "\"broker_id\":\"" << m_brokerId << "\",";
+    ss << "\"clients\":" << currentClients << ",";
+    ss << "\"peers_count\":" << m_peers.size() << ",";
+    ss << "\"msgs_per_sec\":" << messagePerSec << ",";
+    ss << "\"kb_per_sec\":" << kbSec << ",";
+    ss << "\"total_msgs\":" << m_stats.totalMessagesProcessed.load() << ",";
+    ss << "\"uptime_sec\":0";
+    ss << "}";
 
     broker::BrokerPayload msg;
     msg.set_topic("__SYS_STATS__");
     msg.set_handler_key("__SYS_STATS__");
     msg.set_sender_id("BROKER_SYSTEM");
     msg.set_origin_broker_id(m_brokerId);
-    msg.set_raw_data(payload.toStdString());
+    msg.set_raw_data(ss.str());
 
-    Broadcast(msg, nullptr);
+    Broadcast(msg, nullptr, nullptr);
   }
 }

@@ -2,61 +2,55 @@
 #define GRPCWORKER_H
 
 #include <grpcpp/grpcpp.h>
-#include <QByteArray>
-#include <QMutex>
-#include <QThread>
+
 #include <atomic>
 #include <condition_variable>
+#include <functional>
 #include <memory>
+#include <thread>
 
 #include "protobuf_forward.h"
-
-Q_DECLARE_METATYPE(broker::BrokerPayload)
+#include "safequeue.h"
 
 struct WorkerConfig {
-  QString targetAddress;
+  std::string targetAddress;
   int compressionAlgo = 2;  // Default GZIP
   int keepAliveTime = 10000;
   int keepAliveTimeout = 5000;
 };
 
-class GrpcWorker : public QThread {
-  Q_OBJECT
+class GrpcWorker {
 public:
-  explicit GrpcWorker(const WorkerConfig& config, QObject* parent = nullptr);
+  using StatusCallback = std::function<void(bool)>;
+  using MessageCallback = std::function<void(const broker::BrokerPayload&)>;
 
-  ~GrpcWorker() override;
+  explicit GrpcWorker(const WorkerConfig& config, SafeQueue<broker::BrokerPayload>* inboundQueue, StatusCallback callback);
 
-  bool writeMessage(const broker::BrokerPayload& msg);
+  virtual ~GrpcWorker();
+
+  void start();
   void stop();
+  bool writeMessage(const broker::BrokerPayload& msg);
+  void setMessageCallback(MessageCallback callback);
 
 protected:
-  void run() override;
-
-signals:
-  void envelopeReceived(const broker::BrokerPayload& msg);
-  void connected();
-  void disconnected();
-  void payloadReceived(const QString& handlerKey, const QByteArray& rawData);
-
-private:
-  bool responsiveSleep(int milliseconds);
+  void run();
 
 private:
   WorkerConfig m_config;
+  SafeQueue<broker::BrokerPayload>* m_inboundQueue;
+  StatusCallback m_statusCallback;
+  MessageCallback m_messageCallback;
 
   std::atomic<bool> m_running;
-
-  std::mutex m_sleepMutex;
-  std::condition_variable m_sleepCv;
+  std::thread m_workerThread;
 
   std::shared_ptr<grpc::Channel> m_channel;
   std::unique_ptr<broker::BrokerService::Stub> m_stub;
 
+  std::mutex m_streamMutex;
   std::shared_ptr<grpc::ClientContext> m_context;
   std::shared_ptr<grpc::ClientReaderWriter<broker::BrokerPayload, broker::BrokerPayload>> m_stream;
-
-  QMutex m_streamMutex;
 };
 
 #endif  // GRPCWORKER_H

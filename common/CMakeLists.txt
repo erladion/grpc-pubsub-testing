@@ -6,12 +6,12 @@ add_library(GrpcLib STATIC
     grpcworker.cpp
     grpcworker.h
     protobuf_forward.h
+    safequeue.h
 )
 
 target_include_directories(GrpcLib PUBLIC ${GENERATED_DIR})
 
 target_link_libraries(GrpcLib PUBLIC
-    Qt${QT_VERSION_MAJOR}::Core
     gRPC::grpc++
     protobuf::libprotobuf
     absl::base
@@ -29,4 +29,3 @@ add_library(GrpcConnectionLib STATIC
 )
 
 target_link_libraries(GrpcConnectionLib PRIVATE GrpcLib)
-target_link_libraries(GrpcConnectionLib PRIVATE Qt6::Core)

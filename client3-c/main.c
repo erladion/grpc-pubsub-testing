@@ -6,13 +6,22 @@
 #include "grpcconnectionapi.h"
 #include "update.pb-c.h"
 
+void on_status(int status, void* ctx) {
+  if (status == GRPC_STATUS_CONNECTED) {
+    printf("[C-Client] Status: CONNECTED\n");
+  } else {
+    printf("[C-Client] Status: DISCONNECTED (Retrying...)\n");
+  }
+  fflush(stdout);
+}
+
 void on_message(const char* topic, const char* data, int len, void* ctx) {
-  // Verify Topic
+  printf("[C-Client] Message received on topic: %s\n", topic);
+
   if (strcmp(topic, "test") != 0) {
     return;
   }
 
-  // Deserialize
   Communication__Update *msg = communication__update__unpack(NULL, len, (const uint8_t*)data);
 
   if (msg == NULL) {
@@ -20,41 +29,43 @@ void on_message(const char* topic, const char* data, int len, void* ctx) {
     return;
   }
 
-  printf("Message: %s | ID: %s\n", msg->message, msg->id);
+  printf("Message Content: %s | ID: %s\n", msg->message, msg->id);
   fflush(stdout);
 
   communication__update__free_unpacked(msg, NULL);
 
   Communication__Update response = COMMUNICATION__UPDATE__INIT;
-
   response.id = "Client-C";
-  response.message = "Hello from the other side!";
+  response.message = "Hello from C";
   response.timestamp_utc = 12345;
 
   size_t size = communication__update__get_packed_size(&response);
-
   uint8_t *buffer = malloc(size);
-  if (!buffer) return;
 
-  // Serialize
-  communication__update__pack(&response, buffer);
-
-  sendData("MessageReceived2", (const char*)buffer, size);
+  if (buffer) {
+    communication__update__pack(&response, buffer);
+    sendData("MessageReceived2", (const char*)buffer, size);
+    free(buffer);
+  }
 }
 
 int main() {
+  setvbuf(stdout, NULL, _IONBF, 0);
+
   GrpcConfig config;
   config.address = "127.0.0.1:50051";
-  config.client_id = "c-client";
-  config.compression_algorithm = COMPRESS_GZIP;
-  initConnection(&config);
+  config.client_id = "c-client-1";
 
+  printf("Registering callbacks...\n");
+  fflush(stdout);
+  registerStatusCallback(on_status, NULL);
   registerCallback("test", on_message, NULL);
 
-  printf("Listening for C++ messages...\n");
+  printf("Initializing...\n");
   fflush(stdout);
-  while(1) {
-    usleep(10000); // 10ms sleep
-  }
-  return 0;
+  initConnection(&config);
+
+  printf("Running...\n");
+  fflush(stdout);
+  while(1) { usleep(100000); }
 }

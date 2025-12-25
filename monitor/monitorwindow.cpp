@@ -12,11 +12,11 @@ MonitorWindow::MonitorWindow(QWidget* parent) : QMainWindow(parent) {
   setupUi();
 
   // 1. Connect to the Broker (Localhost or Remote)
-  GrpcConnectionManager::init("127.0.0.1:50051");
+  GrpcConnectionManager::init("monitor", "127.0.0.1:50051");
 
   // 2. Subscribe to the System Stats topic
-  GrpcConnectionManager::registerCallback("__SYS_STATS__", [this](const QByteArray& data) {
-    QJsonDocument doc = QJsonDocument::fromJson(data);
+  GrpcConnectionManager::registerCallback("__SYS_STATS__", [this](const std::string& data) {
+    QJsonDocument doc = QJsonDocument::fromJson(QString::fromStdString(data).toUtf8());
     if (doc.isObject()) {
       // Marshall to Main Thread for UI updates
       QMetaObject::invokeMethod(this, [this, doc]() { updateStats(doc.object()); });
