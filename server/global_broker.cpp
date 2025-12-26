@@ -37,25 +37,23 @@ static std::string generateUUID() {
   return ss.str();
 }
 
-void GlobalBroker::Register(std::shared_ptr<CallData> client) {
+void GlobalBroker::register(std::shared_ptr<CallData> client) {
   std::unique_lock<std::shared_mutex> lock(m_clientMutex);
   m_clients.insert(client);
   m_stats.activeClients++;
 }
 
-void GlobalBroker::Unregister(std::shared_ptr<CallData> client) {
+void GlobalBroker::unregister(std::shared_ptr<CallData> client) {
   std::unique_lock<std::shared_mutex> lock(m_clientMutex);
   m_clients.erase(client);
   m_stats.activeClients--;
 }
 
-void GlobalBroker::Broadcast(const broker::BrokerPayload& msg, CallData* sender, GrpcWorker* sourcePeer) {
-  broker::BrokerPayload forwardMsg = msg;
-
-  std::string uniqueId = forwardMsg.message_uuid();
+void GlobalBroker::broadcast(broker::BrokerPayload msg, CallData* sender, GrpcWorker* sourcePeer) {
+  std::string uniqueId = msg.message_uuid();
   if (uniqueId.empty()) {
     uniqueId = generateUUID();
-    forwardMsg.set_message_uuid(uniqueId);
+    msg.set_message_uuid(uniqueId);
   }
 
   {
@@ -80,15 +78,15 @@ void GlobalBroker::Broadcast(const broker::BrokerPayload& msg, CallData* sender,
 
   m_stats.totalMessagesProcessed++;
   m_stats.messagesThisInterval++;
-  size_t msgSize = forwardMsg.ByteSizeLong();
+  size_t msgSize = msg.ByteSizeLong();
   m_stats.totalBytesProcessed += msgSize;
   m_stats.bytesThisInterval += msgSize;
 
-  if (forwardMsg.origin_broker_id().empty()) {
-    forwardMsg.set_origin_broker_id(m_brokerId);
+  if (msg.origin_broker_id().empty()) {
+    msg.set_origin_broker_id(m_brokerId);
   }
 
-  auto sharedMsg = std::make_shared<broker::BrokerPayload>(std::move(forwardMsg));
+  auto sharedMsg = std::make_shared<broker::BrokerPayload>(std::move(msg));
 
   // Local Delivery
   std::vector<std::shared_ptr<CallData>> targets;
@@ -153,7 +151,7 @@ void GlobalBroker::removePeer(GrpcWorker* peer) {
 }
 
 void GlobalBroker::injectRemoteMessage(const broker::BrokerPayload& msg, GrpcWorker* sourcePeer) {
-  Broadcast(msg, nullptr, sourcePeer);
+  broadcast(msg, nullptr, sourcePeer);
 }
 
 GlobalBroker::GlobalBroker() : m_running(true), m_monitorThread(std::thread(&GlobalBroker::StatsLoop, this)) {}
@@ -242,6 +240,6 @@ void GlobalBroker::StatsLoop() {
     msg.set_origin_broker_id(m_brokerId);
     msg.set_raw_data(ss.str());
 
-    Broadcast(msg, nullptr, nullptr);
+    broadcast(msg, nullptr, nullptr);
   }
 }

@@ -23,9 +23,9 @@ public:
     return inst;
   }
 
-  void Register(std::shared_ptr<CallData> client);
-  void Unregister(std::shared_ptr<CallData> client);
-  void Broadcast(const broker::BrokerPayload& msg, CallData* sender, GrpcWorker* sourcePeer = nullptr);
+  void register(std::shared_ptr<CallData> client);
+  void unregister(std::shared_ptr<CallData> client);
+  void broadcast(broker::BrokerPayload msg, CallData* sender, GrpcWorker* sourcePeer = nullptr);
 
   void setBrokerId(const std::string& id) { m_brokerId = id; }
 

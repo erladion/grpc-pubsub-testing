@@ -81,7 +81,7 @@ void CallData::handleConnect(bool ok) {
   }
 
   CallData::create(m_pService, m_pCompletionQueue);
-  GlobalBroker::instance().Register(shared_from_this());
+  GlobalBroker::instance().register(shared_from_this());
 
   Logger::Log(Logger::Type::Info, "New Client Connection Established");
 
@@ -138,7 +138,7 @@ void CallData::handleRead(bool ok) {
       m_clientId = m_incomingMessage.sender_id();
     }
 
-    GlobalBroker::instance().Broadcast(m_incomingMessage, this);
+    GlobalBroker::instance().broadcast(std::move(m_incomingMessage), this);
   }
 
   Tag* tag = new Tag{shared_from_this(), READ};
@@ -190,6 +190,6 @@ void CallData::stop() {
   }
   m_dying = true;
 
-  GlobalBroker::instance().Unregister(shared_from_this());
+  GlobalBroker::instance().unregister(shared_from_this());
   m_serverContext.TryCancel();
 }
